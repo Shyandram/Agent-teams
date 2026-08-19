@@ -100,6 +100,42 @@ method.
 
 - TODO
 
+## Prior art
+
+> What already exists that partly answers this, and why it is not enough. Filling this in
+> is often what reveals the question has already been answered.
+
+| Work | What it established | Why it does not settle this |
+|---|---|---|
+| TODO | TODO | TODO |
+
+## Checkpoints
+
+> Points at which the direction is re-examined against evidence, not just continued.
+> Without these a research team optimises for looking busy.
+
+| When | What must be true by then | If it is not |
+|---|---|---|
+| TODO | TODO | TODO — abandon, narrow, or change approach |
+
+## Ethics and compliance
+
+> Delete this section if there is genuinely no human data, no personal data, and no
+> licensing constraint. Otherwise it is not optional.
+
+- Human subjects / personal data involved: TODO
+- Licences on data or models that restrict use or publication: TODO
+- Approval required before publishing: TODO
+
+## Definition of done for the whole project
+
+> Not per-task — for this research. What has to exist for the question to count as
+> answered, including the case where the answer is "no".
+
+- [ ] TODO
+- [ ] The result is reproducible from a recorded command and seed
+- [ ] The strongest objection to the result is written down and addressed
+
 ---
 
 ## For the team

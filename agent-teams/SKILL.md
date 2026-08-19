@@ -55,6 +55,7 @@ bash <skill-dir>/bin/agent-teams <command>
 | `attach ROLE` | Enter one role's session |
 | `stop` | End sessions, keeping logs and notes |
 | `skills` | Manage the reference skill library |
+| `focus` | Browse the catalogue of assignments an instance can own |
 | `team` | Draw the team structure; add / remove / move roles |
 | `role` | List roles, or create your own (sub-roles via `--extends`) |
 | `send` / `broadcast` / `steer` / `inbox` | Inter-role messaging |
@@ -268,3 +269,22 @@ commits are prefixed `<squad>/`.
 `Agent` tool. Nothing needs pre-defining. Optional private specialists live in
 `.agent-teams/subagents/<role>/` (`init --subagents`) and are passed per session, so they
 are invisible to other roles.
+
+## Keep the team small
+
+Presets default to 3-4 roles (`solo` is 1). Every role is another full context, another
+note the others must read, and another thing that can block. Add a role when a gap
+actually appears — `team add` takes seconds — rather than launching eight and hoping.
+`init` warns above six. The `-wide` presets exist for work that genuinely parallelises.
+
+## Focus and aim templates
+
+`agent-teams focus list [role]` browses 66 assignments across 11 roles. The key is the
+instance suffix, so `--roles research:survey` creates `research-survey` and attaches the
+`survey` assignment with no extra flag. `--focus-for x=@key` uses a catalogue entry
+explicitly; `--focus-for x="free text"` overrides it.
+
+`--aim research|app-dev|experiment|library|migration` chooses the `AIM.md` template,
+independently of the role preset. Pick by the *shape of the work*: `experiment` for a
+single question with a pre-registered threshold, `library` when the interface is the
+product, `migration` when both states must work throughout.

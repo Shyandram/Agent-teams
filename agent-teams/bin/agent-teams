@@ -36,6 +36,7 @@ ${AT_BOLD}COMMANDS${AT_RESET}
   skills    Manage the reference skill library roles consult for domain depth
   model     Show or change which model each role runs on
   role      List roles, or create your own (incl. sub-roles via --extends)
+  focus     Browse the catalogue of assignments an instance can own
   team      Draw the team structure; add / remove / move roles
   send      Message one role   ·  broadcast  Message every role
   steer     Redirect a running role  ·  inbox  Read waiting messages
@@ -68,7 +69,7 @@ cmd_init() {
   local project="$PWD" kind="" roles_csv="" force=0 dry=0
   local project_name="" build_cmd="" test_cmd="" lint_cmd="" lang="" tz="Asia/Taipei"
   local default_runtime="claude-code" runtime_map="" general_role="lead" ref_skills=1
-  local focus_map="" subagents=0 kind_explicit=0 squad_specs=""
+  local focus_map="" subagents=0 kind_explicit=0 squad_specs="" aim_kind=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -80,6 +81,7 @@ cmd_init() {
       --general)        general_role="$2"; shift 2 ;;
       --no-reference-skills) ref_skills=0; shift ;;
       --subagents) subagents=1; shift ;;
+      --aim)   aim_kind="$2"; shift 2 ;;
       --squad) squad_specs="${squad_specs}${squad_specs:+$(printf '\001')}$2"; shift 2 ;;
       --focus-for) focus_map="${focus_map}${focus_map:+$(printf '\001')}$2"; shift 2 ;;
       --name)           project_name="$2"; shift 2 ;;
@@ -102,6 +104,9 @@ agent-teams init — scaffold the team contract into a project
                        (claude-code | codex | pi; default claude-code)
   --runtime-for R=RT   Override one role's runtime. Repeatable.
                        e.g. --runtime-for research=codex --runtime-for qa=codex
+  --aim KIND           Which AIM.md template to write. Independent of --kind.
+                       research | app-dev | experiment | library | migration
+                       (default: research for research presets, else app-dev)
   --general ROLE       Which role orchestrates the others (default: lead).
                        Run the general in whichever CLI you are sitting in;
                        it launches and supervises the rest.
@@ -113,13 +118,15 @@ agent-teams init — scaffold the team contract into a project
   --force              Overwrite existing files
   --dry-run            Show what would be written
 
-Presets:
-  research        lead, research:lit, research:data, analysis:primary,
-                  analysis:ablation, engineering, qa
-  research-small  lead, research, analysis, qa
-  app-dev         lead, engineering:api, engineering:ui, qa, devops
-  app-dev-small   lead, engineering, qa
-  full-stack      app-dev + ux, product-marketing, legal
+Presets — small on purpose. Every role is another context to pay for and another
+thing that can wedge; add one when a gap actually appears.
+
+  solo            engineering                                        (1)
+  app-dev         lead, engineering, qa                              (3)
+  research        lead, research, analysis, qa                       (4)
+  app-dev-wide    + engineering:api/ui, qa:functional/regression, devops   (6)
+  research-wide   + research:survey/data, analysis:primary/ablation, engineering (7)
+  full-stack      + ux, product-marketing, legal                     (8)
 
 Instances: several of one role can run at once.
   research:lit    -> research-lit,  built from the research role
@@ -209,7 +216,10 @@ $(at_expand_role_spec "$r")
 EOF
   done
   [ -z "$missing" ] || at_die "unknown role(s):$missing
-available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.md$//' | tr '\n' ' ')"
+available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.md$//' | grep -v '^README$' | sort | tr '\n' ' ')
+
+To make several instances of one role, qualify it: analysis:ablation, analysis*2.
+A bare name must be a role that exists (see: agent-teams role list)."
 
   # Collision check
   local targets="AGENTS.md docs/coordination/README.md .agent-teams/team.yaml"
@@ -269,13 +279,19 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
   # The aim doc: what the whole project is for. Research and app-dev ask different
   # questions of it, so the template follows --kind.
   local aim_tpl=""
-  case "$kind" in
-    research) aim_tpl="AIM.research.md.tpl" ;;
-    *)        aim_tpl="AIM.app-dev.md.tpl" ;;
-  esac
+  if [ -n "$aim_kind" ]; then
+    aim_tpl="AIM.$aim_kind.md.tpl"
+    [ -f "$AT_TEMPLATES_DIR/$aim_tpl" ] || at_die "--aim '$aim_kind': no such template.
+available: $(ls "$AT_TEMPLATES_DIR"/AIM.*.tpl 2>/dev/null | xargs -n1 basename | sed 's/^AIM\.//;s/\.md\.tpl$//' | tr '\n' ' ')"
+  else
+    case "$kind" in
+      research*) aim_tpl="AIM.research.md.tpl" ;;
+      *)         aim_tpl="AIM.app-dev.md.tpl" ;;
+    esac
+  fi
   if [ -f "$AT_TEMPLATES_DIR/$aim_tpl" ] && { [ ! -e "$project/AIM.md" ] || [ "$force" -eq 1 ]; }; then
     at_render <"$AT_TEMPLATES_DIR/$aim_tpl" >"$project/AIM.md"
-    at_ok "AIM.md ($([ "$kind" = "research" ] && echo research || echo product) — fill this in BEFORE launching)"
+    at_ok "AIM.md ($(printf '%s' "$aim_tpl" | sed 's/^AIM\.//;s/\.md\.tpl$//') — fill this in BEFORE launching)"
   fi
 
   for pair in "coordination/README.md.tpl:docs/coordination/README.md" \
@@ -306,13 +322,20 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
     local focus="" _pair
     while IFS= read -r _pair; do
       [ -n "$_pair" ] || continue
-      [ "${_pair%%=*}" = "$r" ] && focus="${_pair#*=}"
+      if [ "${_pair%%=*}" = "$r" ]; then
+        focus="${_pair#*=}"
+        # "@key" pulls the wording from the catalogue instead of repeating it here.
+        case "$focus" in
+          @*) focus="$(at_focus_template "$base" "${focus#@}")" \
+                || at_die "--focus-for $r=@${_pair#*=@}: no such focus for role '$base' (try: agent-teams focus list $base)" ;;
+        esac
+      fi
     done <<EOF
 $(printf '%s' "$focus_map" | tr '\001' '\n')
 EOF
     # Fall back to the preset's suggested assignment, so two instances of one role
     # never start with identical briefs.
-    [ -n "$focus" ] || focus="$(at_preset_focus "$r" 2>/dev/null || true)"
+    [ -n "$focus" ] || focus="$(at_preset_focus "$r" "$base" 2>/dev/null || true)"
 
     local squad="" _sm
     while IFS= read -r _sm; do
@@ -393,6 +416,10 @@ EOF
 $instances
 EOF
   at_ok ".claude/agents/ ($n_roles role instances)"
+  if [ "$n_roles" -gt 6 ]; then
+    at_warn "$n_roles roles is a lot: each is a full context, and they all read each"
+    at_say "      other's notes. Drop any you do not need with: agent-teams team remove <role>"
+  fi
   at_ok ".agent-teams/team.yaml"
 
   # --- permissions allowlist ---
@@ -1282,6 +1309,84 @@ PY
 }
 
 # =====================================================================
+# focus — the catalogue of assignments an instance can own
+# =====================================================================
+cmd_focus() {
+  local role="" show_all=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      list) show_all=1; shift ;;
+      -C|--project-dir) shift 2 ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams focus — assignments an instance of a role can own
+
+  agent-teams focus list            every focus in the catalogue
+  agent-teams focus list research   just one role's
+
+The KEY is the instance suffix, so the focus is picked up automatically:
+
+  --roles "research:survey,research:data,analysis:ablation"
+
+  research:survey  -> research-survey, with the `survey` focus attached
+
+Override or write your own at any time:
+
+  --focus-for analysis-1=@leakage          use a catalogue entry by key
+  --focus-for analysis-1="free text"       your own wording
+
+A focus says what THIS instance owns, so its siblings can stay out of it. Two
+instances of one role without distinct focus do the same work twice.
+Catalogue: templates/focus.tsv
+EOF
+        return 0 ;;
+      *) role="$1"; shift ;;
+    esac
+  done
+
+  local rowsf; rowsf="$(mktemp)" || at_die "cannot create temp file"
+  at_focus_keys "$role" >"$rowsf"
+  if [ ! -s "$rowsf" ]; then
+    rm -f "$rowsf"
+    [ -n "$role" ] && at_die "no focus entries for role '$role' (try: agent-teams focus list)"
+    at_die "focus catalogue is empty or missing: $AT_FOCUS_TSV"
+  fi
+
+  python3 - "$rowsf" "$role" <<'PY' >&2
+import sys
+rows = []
+for line in open(sys.argv[1], errors="replace"):
+    parts = line.rstrip("\n").split("\t")
+    if len(parts) >= 3:
+        rows.append(parts[:3])
+want = sys.argv[2]
+last = None
+print()
+for role, key, text in rows:
+    if role != last:
+        if last is not None:
+            print()
+        print("  %s" % role)
+        last = role
+    wrapped, line = [], "      "
+    for word in text.split():
+        if len(line) + len(word) + 1 > 92:
+            wrapped.append(line); line = "      " + word
+        else:
+            line = (line + " " + word) if line.strip() else line + word
+    wrapped.append(line)
+    print("    %-14s %s" % (key, wrapped[0].strip()))
+    for extra in wrapped[1:]:
+        print("    %-14s %s" % ("", extra.strip()))
+print()
+print("  use as an instance suffix:  --roles \"%s:<key>\"" % (want or "<role>"))
+print("  or explicitly:              --focus-for <instance>=@<key>")
+print()
+PY
+  rm -f "$rowsf"
+}
+
+# =====================================================================
 # role — list, create, and specialise roles
 # =====================================================================
 cmd_role() {
@@ -1998,6 +2103,7 @@ main() {
     skills)  cmd_skills "$@" ;;
     model)   cmd_model "$@" ;;
     role)      cmd_role "$@" ;;
+    focus)     cmd_focus "$@" ;;
     team)      cmd_team "$@" ;;
     close)     cmd_close "$@" ;;
     send)      cmd_send "$@" ;;

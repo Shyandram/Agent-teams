@@ -523,31 +523,65 @@ EOF
 
 # ---------- presets ----------
 at_preset_roles() {
+  # Defaults are deliberately SMALL. Every extra role is another full context to pay
+  # for, another coordination note to read, and another thing that can wedge. Start
+  # with the minimum that covers the work and add roles when a gap actually appears —
+  # `agent-teams team add <role>` takes seconds.
+  #
+  # The -wide variants exist for when the work genuinely parallelises across several
+  # instances of one role.
   case "$1" in
-    # Research runs several instances of one role in parallel — three literatures,
-    # two hypotheses — because that is where the parallelism actually pays.
-    research)        printf 'lead,research:lit,research:data,analysis:primary,analysis:ablation,engineering,qa' ;;
-    research-small)  printf 'lead,research,analysis,qa' ;;
-    app-dev)         printf 'lead,engineering:api,engineering:ui,qa,devops' ;;
-    app-dev-small)   printf 'lead,engineering,qa' ;;
+    research)        printf 'lead,research,analysis,qa' ;;
+    research-wide)   printf 'lead,research:survey,research:data,analysis:primary,analysis:ablation,engineering,qa' ;;
+    app-dev)         printf 'lead,engineering,qa' ;;
+    app-dev-wide)    printf 'lead,engineering:api,engineering:ui,qa:functional,qa:regression,devops' ;;
     full-stack)      printf 'lead,engineering:api,engineering:ui,ux,qa,devops,product-marketing,legal' ;;
+    solo)            printf 'engineering' ;;
     *) return 1 ;;
   esac
 }
 
-# Suggested focus for the instances a preset creates. A focus the user never writes is
-# worse than none: two instances of one role with no assignment do the same work twice.
+# ---------- focus catalogue ----------
+# templates/focus.tsv holds one entry per line: base-role, key, focus text (TAB-separated).
+# The key IS the instance suffix, so `--roles research:survey` creates research-survey and
+# picks up the matching focus with no extra flag.
+#
+# A focus nobody writes is worse than none: two instances of one role with no assignment
+# do the same work twice, which is the main way parallelism is wasted.
+AT_FOCUS_TSV="$AT_TEMPLATES_DIR/focus.tsv"
+
+# at_focus_template <base-role> <key>
+at_focus_template() {
+  [ -f "$AT_FOCUS_TSV" ] || return 1
+  awk -F'\t' -v r="$1" -v k="$2" '
+    /^#/ { next }
+    NF < 3 { next }
+    $1 == r && $2 == k { print $3; found = 1; exit }
+    END { exit(found ? 0 : 1) }
+  ' "$AT_FOCUS_TSV"
+}
+
+# at_focus_keys [base-role] -> "role<TAB>key<TAB>text"
+at_focus_keys() {
+  [ -f "$AT_FOCUS_TSV" ] || return 0
+  awk -F'\t' -v r="${1:-}" '
+    /^#/ { next }
+    NF < 3 { next }
+    r == "" || $1 == r { print $1 "\t" $2 "\t" $3 }
+  ' "$AT_FOCUS_TSV"
+}
+
+# at_preset_focus <instance> <base-role>
+# Derive the focus from the instance suffix when it names a catalogue key.
 at_preset_focus() {
-  case "$1" in
-    research-lit)      printf 'prior work and existing results: what is already known, and what nobody has tried' ;;
-    research-data)     printf 'sources and datasets: acquisition, licensing, validation, provenance' ;;
-    analysis-primary)  printf 'the primary hypothesis in AIM.md, and the evidence that would falsify it' ;;
-    analysis-ablation) printf 'ablations, negative controls, and sensitivity of the primary result' ;;
-    engineering-api)   printf 'backend, data model, and interfaces' ;;
-    engineering-ui)    printf 'client, presentation, and user-facing behaviour' ;;
+  local instance="$1" base="${2:-}"
+  [ -n "$base" ] || return 1
+  case "$instance" in
+    "$base"-*) at_focus_template "$base" "${instance#"$base"-}" ;;
     *) return 1 ;;
   esac
 }
+
 
 # ---------- misc ----------
 at_confirm() {

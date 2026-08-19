@@ -84,6 +84,43 @@ TODO
 
 - TODO
 
+## Current state
+
+> What exists today that this changes or replaces. A change designed without reading the
+> current behaviour is how regressions ship.
+
+TODO
+
+## Dependencies and integrations
+
+| What | Depended on for | If it is unavailable |
+|---|---|---|
+| TODO | TODO | TODO |
+
+## Success metrics
+
+> How you will know afterwards whether this worked, from real usage rather than opinion.
+> If nothing is measurable, say so — that is a finding about the plan.
+
+| Metric | Now | Target | Measured how |
+|---|---|---|---|
+| TODO | TODO | TODO | TODO |
+
+## Risks
+
+| Risk | Blast radius | Mitigation |
+|---|---|---|
+| TODO | TODO | TODO |
+
+## Definition of done for the whole project
+
+> Not per-task — for this piece of work as a whole.
+
+- [ ] Every acceptance criterion above is demonstrated by a check that was actually run
+- [ ] Existing behaviour still works, shown by tests rather than assumed
+- [ ] Documentation matches what shipped
+- [ ] The rollback has been tested, not just written down
+
 ---
 
 ## For the team

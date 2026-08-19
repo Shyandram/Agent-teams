@@ -1,0 +1,91 @@
+# Focus catalogue — what a role instance owns.
+#
+# Format:  <base-role> <TAB> <key> <TAB> <focus text>
+# Lines starting with # are ignored. The separator is a literal TAB.
+#
+# The key IS the instance suffix, so `--roles research:survey` creates `research-survey`
+# and picks up the matching focus automatically. `--focus-for <instance>=@<key>` uses a
+# template explicitly, and `--focus-for <instance>="free text"` overrides it entirely.
+#
+# Browse with:  agent-teams focus list [role]
+#
+# A focus should say what this instance OWNS, in a way another instance of the same role
+# can read and stay out of. Two instances with vague or overlapping focus do the same
+# work twice, which is the main way parallelism is wasted.
+
+# ---------------------------------------------------------------- research
+research	survey	Prior work and existing results: what is already established, what has been tried and failed, and what nobody has attempted. Produce a map, not a reading list.
+research	data	Sources and datasets: acquisition, licensing terms, schema, validation, and provenance. Every dataset gets source, date, licence, and retrieval date recorded before it is used.
+research	methods	Reproduce the baseline methods from their original descriptions. Report what did not reproduce as carefully as what did.
+research	competing	The strongest case AGAINST the current direction: who has argued the opposite, and on what evidence.
+research	adjacent	Neighbouring fields that have solved a structurally similar problem. Report transferable techniques, not analogies.
+research	sources	Primary-source verification of claims already made in this project. For each: does the source exist, say what we claim, and still hold.
+research	landscape	Tools, libraries, and existing implementations that already do part of this. Buy-versus-build evidence, with licences.
+
+# ---------------------------------------------------------------- analysis
+analysis	primary	The primary hypothesis in AIM.md, and the evidence that would falsify it. Report the falsifier's result whichever way it goes.
+analysis	ablation	Ablations and negative controls: which components actually carry the result, and does it survive removing each one.
+analysis	baseline	Fair comparison against the stated baseline. Tune the baseline as carefully as the method — an untuned baseline is not a comparison.
+analysis	sensitivity	How stable the result is to seed, split, hyperparameters, and data ordering. A result that moves with the seed is not a result.
+analysis	error	Error analysis: where the method fails, on which inputs, and whether the failures share a structure.
+analysis	stats	Statistical validity: sample size, variance, multiple comparisons, and whether the reported difference is distinguishable from noise.
+analysis	leakage	Hunt for target leakage and train/eval contamination. Assume it is present until the splits are proven clean.
+analysis	scaling	How the result changes with data volume, model size, or input length. Report the trend, not a single point.
+
+# ---------------------------------------------------------------- engineering
+engineering	api	Backend, data model, and interfaces. Owns the contracts other components depend on.
+engineering	ui	Client, presentation, and user-facing behaviour. Owns what the user actually touches.
+engineering	data	Data pipeline: ingestion, transformation, storage, and migration. Owns schema compatibility.
+engineering	infra	Build, packaging, configuration, and dependency management. Owns the repository staying buildable.
+engineering	perf	Performance: measure first, then optimise what the measurement names. No optimisation without a before-number.
+engineering	refactor	Structural improvement of existing code with no behaviour change. Every commit must be behaviour-preserving and reviewable as such.
+engineering	integration	Wiring components together and owning the seams between them, including failure behaviour at each seam.
+engineering	migration	Moving existing data or callers to a new shape, with a rollback that has been tested rather than assumed.
+
+# ---------------------------------------------------------------- qa
+qa	functional	Acceptance criteria in AIM.md, verified one by one. A criterion is met only when a check demonstrates it.
+qa	regression	Existing behaviour that must not break. Owns the suite that protects what already worked.
+qa	edge	Boundary and malformed input: empty, single, duplicate, oversized, wrong type, wrong order, absent.
+qa	integration	Behaviour across component boundaries, including what happens when one side fails or is slow.
+qa	accessibility	Keyboard navigation, focus handling, accessible names, contrast, zoom, and reduced motion.
+qa	security	Input validation, authorisation boundaries, secret handling, and injection surfaces. Report findings; do not exploit beyond proof.
+qa	repro	Reproduce reported defects and reduce each to the smallest failing case before anyone attempts a fix.
+
+# ---------------------------------------------------------------- ux
+ux	flows	End-to-end task flows: can a user actually complete the job, and where do they stall.
+ux	states	Loading, empty, partial, error, and offline states. The states that are skipped are the ones users hit.
+ux	ia	Information architecture: naming, grouping, and hierarchy. Owns whether things are findable.
+ux	uncertainty	Surfacing provenance, confidence, staleness, and what the system does not know.
+ux	copy	Interface language: labels, errors, and instructions that say what happened and what to do next.
+
+# ---------------------------------------------------------------- devops
+devops	ci	Continuous integration: what runs on every change, how fast, and how clearly it fails.
+devops	deploy	Deployment path and rollback. A deploy with an untested rollback is a one-way door.
+devops	observability	Logs, metrics, and traces sufficient to diagnose a failure without reproducing it locally.
+devops	env	Environment parity and configuration: dev, staging, and production differing only where intended.
+devops	cost	Resource usage and spend, with the largest contributors named and measured.
+
+# ---------------------------------------------------------------- lead
+lead	integration	Reconciling the squads' outputs into one coherent result, and naming the conflicts rather than averaging them.
+lead	scope	Guarding AIM.md: what is in, what is explicitly out, and what has quietly crept in.
+
+# ---------------------------------------------------------------- simulation
+simulation	model	Model correctness: estimand, units, assumptions, and invariants stated before results are produced.
+simulation	reproducibility	Seeded reproducibility: identical inputs and seeds must yield identical outputs, verified rather than assumed.
+simulation	validation	Validation boundary: what the simulation has been shown to predict, and what it has not.
+simulation	calibration	Calibration against observed outcomes, keeping calibration, discrimination, and error separate.
+
+# ---------------------------------------------------------------- legal
+legal	licensing	Dependency and dataset licences, attribution obligations, and compatibility with how this project is distributed.
+legal	privacy	Personal data: what is collected, why, where it goes, how long it is kept, and whether that is minimal.
+legal	claims	Public claims against verified evidence. Flag anything stated more strongly than the evidence supports.
+
+# ---------------------------------------------------------------- translation
+translation	parity	Key-shape parity across locales: every key present everywhere, no orphans, no drift.
+translation	terminology	Consistent domain terminology and its glossary, so one concept has one word per locale.
+translation	layout	Text expansion, truncation, and bidirectional layout in the actual interface, not in isolation.
+
+# ---------------------------------------------------------- product-marketing
+product-marketing	positioning	Audience, problem, and benefit, stated so a reader knows whether this is for them.
+product-marketing	claims	Every quantitative claim traced to a reproducible source. No number without a run behind it.
+product-marketing	launch	Release narrative, changelog, and documentation that matches what actually shipped.

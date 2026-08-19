@@ -233,11 +233,19 @@ are ignored.
 Core: `lead` · `engineering` · `research` · `analysis` · `qa` · `ux` · `devops`
 Extras: `translation` · `legal` · `simulation` · `product-marketing`
 
-| Preset | Roles |
-|---|---|
-| `research` | lead, research, analysis, engineering, qa |
-| `app-dev` | lead, engineering, ux, qa, devops |
-| `full-stack` | app-dev + product-marketing, legal |
+| Preset | Roles | |
+|---|---|---|
+| `solo` | engineering | 1 |
+| `app-dev` | lead, engineering, qa | 3 |
+| `research` | lead, research, analysis, qa | 4 |
+| `app-dev-wide` | + engineering:api/ui, qa:functional/regression, devops | 6 |
+| `research-wide` | + research:survey/data, analysis:primary/ablation, engineering | 7 |
+| `full-stack` | + ux, product-marketing, legal | 8 |
+
+**Defaults are small on purpose.** Every role is another full context to pay for, another
+note for the others to read, and another thing that can wedge. Start minimal and add when
+a gap actually appears — `agent-teams team add <role>` takes seconds. `init` warns above
+six roles.
 
 Custom teams: `--roles lead,engineering,legal`. Add your own by dropping a file into
 `roles/` — see `roles/README.md` for the format.
@@ -508,3 +516,45 @@ so the reasoning is available when there is a reason to build them.
 The highest-value slice, if it is ever picked up, is automatic failover when a pooled
 role exhausts its quota: the monitor already detects that state, so promotion is a short
 step from detection that works.
+
+---
+
+## Focus catalogue
+
+A focus says what one instance owns, so its siblings stay out of it. The catalogue
+(`templates/focus.tsv`, 66 entries across 11 roles) is keyed by the **instance suffix**,
+so it attaches with no extra flag:
+
+```bash
+agent-teams focus list            # everything
+agent-teams focus list analysis   # one role
+
+--roles "research:survey,research:data,analysis:ablation,qa:edge"
+```
+
+`research:survey` becomes `research-survey` and picks up the `survey` assignment
+automatically. Override any time:
+
+```bash
+--focus-for analysis-1=@leakage        # a catalogue entry, by key
+--focus-for analysis-1="free text"     # your own wording
+```
+
+A few of the keys: research → `survey data methods competing adjacent sources landscape` ·
+analysis → `primary ablation baseline sensitivity error stats leakage scaling` ·
+engineering → `api ui data infra perf refactor integration migration` ·
+qa → `functional regression edge integration accessibility security repro`.
+
+## Aim templates
+
+`--aim` picks which `AIM.md` gets written, independently of the role preset:
+
+| `--aim` | For |
+|---|---|
+| `research` | a research programme: question, hypotheses with falsifiers, validity threats, checkpoints, ethics |
+| `app-dev` | a product change: problem, acceptance criteria, non-goals, current state, metrics, risks |
+| `experiment` | one focused experiment: pre-registered threshold, confounds, stopping rule |
+| `library` | a reusable component: public surface, compatibility, deprecation policy |
+| `migration` | moving from X to Y: inventory, coexistence, ordering, tested rollback |
+
+Defaults to `research` for research presets, `app-dev` otherwise.
