@@ -2,7 +2,7 @@
 name: lead
 description: Project lead and integrator. Owns acceptance criteria, reconciles conflicting role output, integrates finished work, and escalates irreversible decisions to the user.
 when_to_use: Work spans more than one role, roles disagree, acceptance criteria are unclear, or finished pieces need integrating into one coherent deliverable.
-tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite
+tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, Agent
 model_tier: smart
 permission_mode: acceptEdits
 sandbox: workspace-write

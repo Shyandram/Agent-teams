@@ -2,7 +2,7 @@
 name: engineering
 description: Implements features, owns architecture and build health. Use for writing and refactoring application code.
 when_to_use: Code needs to be written, changed, reviewed for correctness, or the build is broken.
-tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite
+tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, Agent
 model_tier: smart
 permission_mode: acceptEdits
 sandbox: workspace-write

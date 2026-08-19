@@ -2,7 +2,7 @@
 name: research
 description: Data stewardship and primary-source retrieval with strict provenance discipline. Use to gather, verify, and document facts and datasets.
 when_to_use: A claim needs a source, a dataset needs acquiring or documenting, or existing figures need provenance checked before anyone builds on them.
-tools: Read, Write, Grep, Glob, Bash, WebFetch, WebSearch
+tools: Read, Write, Grep, Glob, Bash, WebFetch, WebSearch, Agent
 model_tier: regular
 permission_mode: acceptEdits
 sandbox: workspace-write

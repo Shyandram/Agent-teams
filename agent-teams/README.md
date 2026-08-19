@@ -413,3 +413,83 @@ are sitting in an agent worktree — those are **not on your branch**. Then it s
 everything, removes the tmux session, and writes `docs/coordination/_closeout-*.md` with
 each role's final state, token spend, and what was left unresolved. Logs, notes, and
 worktrees are always kept.
+
+---
+
+## Aim: what the whole project is for
+
+`init` writes an **`AIM.md`** at the repo root, chosen by `--kind`:
+
+- **research** — question, hypotheses *with their falsifiers*, success criteria fixed in
+  advance, method, data provenance, validity threats, reproducibility
+- **app-dev** — problem, users, outcome, acceptance criteria, **non-goals**, constraints,
+  architecture decisions with reasons, rollout and rollback
+
+`AGENTS.md` says *how* to work; `AIM.md` says *what for*, and every role reads it first.
+Fill it in **before** launching: a team working from an unfilled aim invents its own
+objectives and diverges quietly.
+
+## Several instances of one role
+
+Parallelism pays when instances of the same role work *different slices*:
+
+```bash
+agent-teams init --kind research \
+  --roles "lead,research:lit,research:data,analysis*2,qa" \
+  --focus-for "research-lit=systematic review, 2020-2026" \
+  --focus-for "analysis-1=primary hypothesis" \
+  --focus-for "analysis-2=ablations and negative controls"
+```
+
+- `research:lit` → instance `research-lit`, built from the `research` role
+- `analysis*2` → `analysis-1`, `analysis-2`
+- `--focus-for` gives each its own slice; the `research`/`app-dev` presets ship sensible
+  defaults so two instances never start with identical briefs
+
+Each instance is a first-class role: its own prompt, inbox, session, logs and coordination
+note. Its prompt says which slice is its own and tells it to message the others rather
+than duplicate their work.
+
+## Squads: small groups owning one direction
+
+When several directions should be explored at once, give each its own group with thinking
+*and* implementation inside it:
+
+```bash
+agent-teams init --kind research --roles "lead,qa" \
+  --squad "attn:research,analysis,engineering" \
+  --squad "conv:research,analysis,engineering"
+```
+
+```
+  squad attn
+  ?   research-attn      claude-code  sonnet
+  ?   analysis-attn      claude-code  opus
+  ?   engineering-attn   claude-code  opus
+
+  squad conv
+  ?   research-conv      claude-code  sonnet
+  ...
+  ? lead        general  claude-code  opus
+  ? qa                   claude-code  sonnet
+```
+
+A squad decides for itself and does not need the lead to change course within its own
+direction. Squad members are explicitly told **not** to converge on another squad — if
+every squad ends up doing the same thing, the parallelism bought nothing. Notes and
+commits are prefixed `<squad>/` so the directions can be compared at the end.
+
+## Subagents
+
+Roles can delegate to a subagent whenever they judge it useful — nothing needs defining
+first, and every role carries the `Agent` tool so it can. The prompt tells them *when*
+it is worth it (wide search, adversarial self-review, long verification) and when it is
+not (small work, or work needing context they already hold).
+
+Optional named specialists, private to one role, are available with `init --subagents`:
+
+    .agent-teams/subagents/<role>/<name>.md
+
+They are passed per session via `claude --agents`, so they are genuinely private — two
+roles can carry different definitions under the same name, and nothing lands in the
+shared `.claude/agents/` namespace.

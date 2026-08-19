@@ -2,7 +2,7 @@
 name: analysis
 description: Modeling, statistics, and evaluation correctness. Owns reproducibility, metric choice, and leakage prevention.
 when_to_use: A model, statistic, metric, or evaluation result is being produced, interpreted, or relied upon.
-tools: Read, Write, Grep, Glob, Bash, WebFetch
+tools: Read, Write, Grep, Glob, Bash, WebFetch, Agent
 model_tier: smart
 permission_mode: acceptEdits
 sandbox: workspace-write

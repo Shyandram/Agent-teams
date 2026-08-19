@@ -18,6 +18,8 @@ AT_BIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 . "$AT_BIN_DIR/_common.sh"
 # shellcheck source=_mailbox.sh
 . "$AT_BIN_DIR/_mailbox.sh"
+# shellcheck source=_subagents.sh
+. "$AT_BIN_DIR/_subagents.sh"
 
 AT_VERSION="1.0.0"
 
@@ -66,16 +68,20 @@ cmd_init() {
   local project="$PWD" kind="" roles_csv="" force=0 dry=0
   local project_name="" build_cmd="" test_cmd="" lint_cmd="" lang="" tz="Asia/Taipei"
   local default_runtime="claude-code" runtime_map="" general_role="lead" ref_skills=1
+  local focus_map="" subagents=0 kind_explicit=0 squad_specs=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
       -C|--project-dir) project="$2"; shift 2 ;;
-      --kind)           kind="$2"; shift 2 ;;
+      --kind)           kind="$2"; kind_explicit=1; shift 2 ;;
       --roles)          roles_csv="$2"; shift 2 ;;
       --runtime)        default_runtime="$2"; shift 2 ;;
       --runtime-for)    runtime_map="${runtime_map}${runtime_map:+,}$2"; shift 2 ;;
       --general)        general_role="$2"; shift 2 ;;
       --no-reference-skills) ref_skills=0; shift ;;
+      --subagents) subagents=1; shift ;;
+      --squad) squad_specs="${squad_specs}${squad_specs:+$(printf '\001')}$2"; shift 2 ;;
+      --focus-for) focus_map="${focus_map}${focus_map:+$(printf '\001')}$2"; shift 2 ;;
       --name)           project_name="$2"; shift 2 ;;
       --build-cmd)      build_cmd="$2"; shift 2 ;;
       --test-cmd)       test_cmd="$2"; shift 2 ;;
@@ -108,21 +114,33 @@ agent-teams init — scaffold the team contract into a project
   --dry-run            Show what would be written
 
 Presets:
-  research    lead, research, analysis, engineering, qa
-  app-dev     lead, engineering, ux, qa, devops
-  full-stack  lead, engineering, ux, qa, devops, product-marketing, legal
+  research        lead, research:lit, research:data, analysis:primary,
+                  analysis:ablation, engineering, qa
+  research-small  lead, research, analysis, qa
+  app-dev         lead, engineering:api, engineering:ui, qa, devops
+  app-dev-small   lead, engineering, qa
+  full-stack      app-dev + ux, product-marketing, legal
+
+Instances: several of one role can run at once.
+  research:lit    -> research-lit,  built from the research role
+  analysis*3      -> analysis-1..3
+  --focus-for research-lit="..."   what that instance owns
 EOF
         return 0 ;;
       *) at_die "init: unknown option '$1'" ;;
     esac
   done
 
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
   [ -n "$project_name" ] || project_name="$(basename -- "$project")"
 
   # Resolve roles
   if [ -n "$roles_csv" ]; then
-    kind="custom"
+    # --roles picks the team; --kind, if given, still says what KIND of project this is,
+    # which is what selects the aim template.
+    [ "$kind_explicit" -eq 1 ] || kind="custom"
   else
     [ -n "$kind" ] || kind="app-dev"
     roles_csv="$(at_preset_roles "$kind")" || at_die "unknown preset '$kind' (research|app-dev|full-stack|custom)"
@@ -146,7 +164,7 @@ EOF
   # need not contain a role called 'lead'.
   if ! printf ',%s,' "$roles_csv" | grep -q ",$general_role,"; then
     if [ "$general_role" = "lead" ]; then
-      general_role="${roles_csv%%,*}"
+      general_role="$(printf '%s' "${roles_csv%%,*}" | sed 's/[:*].*//')"
     else
       at_die "--general '$general_role' is not in this team ($roles_csv)"
     fi
@@ -159,12 +177,37 @@ EOF
   at_info "general : $general_role"
 
   # Validate every role resolves before writing anything.
-  local missing="" r
-  local IFS_SAVE="$IFS"; IFS=','
-  for r in $roles_csv; do
-    at_role_file "$r" >/dev/null || missing="$missing $r"
+  # A squad is a small group owning one direction end to end. --squad "attn:research,engineering"
+  # creates research-attn and engineering-attn, both tagged group=attn, so several
+  # directions can be pursued in parallel without the whole team switching between them.
+  local squad_map="" _sp _sq _sroles _sr
+  while IFS= read -r _sp; do
+    [ -n "$_sp" ] || continue
+    _sq="${_sp%%:*}"; _sroles="${_sp#*:}"
+    [ -n "$_sq" ] && [ "$_sq" != "$_sp" ] \
+      || at_die "--squad expects <name>:<role,role> (got '$_sp')"
+    for _sr in $(printf '%s' "$_sroles" | tr ',' ' '); do
+      roles_csv="${roles_csv}${roles_csv:+,}${_sr}:${_sq}"
+      squad_map="${squad_map}${_sr}-${_sq}=${_sq}
+"
+    done
+  done <<EOF
+$(printf '%s' "$squad_specs" | tr '\001' '\n')
+EOF
+
+  # Expand instance specs first, then validate the BASE role of each instance.
+  local instances=""            # "instance<TAB>base" lines
+  local missing="" r line
+  for r in $(printf '%s' "$roles_csv" | tr ',' ' '); do
+    while IFS=$'\t' read -r inst base; do
+      [ -n "$inst" ] || continue
+      at_role_file "$base" >/dev/null || missing="$missing $base"
+      instances="${instances}${inst}	${base}
+"
+    done <<EOF
+$(at_expand_role_spec "$r")
+EOF
   done
-  IFS="$IFS_SAVE"
   [ -z "$missing" ] || at_die "unknown role(s):$missing
 available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.md$//' | tr '\n' ' ')"
 
@@ -187,9 +230,9 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
     at_say "  $project/AGENTS.md"
     at_say "  $project/docs/coordination/{README.md,_template.md}"
     at_say "  $project/.agent-teams/team.yaml"
-    for r in $(printf '%s' "$roles_csv" | tr ',' ' '); do
-      at_say "  $project/.claude/agents/$r.md"
-      at_say "  $project/.agent-teams/prompts/$r.txt"
+    printf '%s' "$instances" | while IFS=$'\t' read -r inst base; do
+      [ -n "$inst" ] || continue
+      at_say "  $project/.claude/agents/$inst.md${AT_DIM}$([ "$inst" != "$base" ] && printf '   (%s instance)' "$base")${AT_RESET}"
     done
     at_say "  $project/.gitignore  (append .agent-teams/{logs,sessions}/)"
     return 0
@@ -223,6 +266,18 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
     at_warn "missing template: AGENTS.md.tpl"
   fi
 
+  # The aim doc: what the whole project is for. Research and app-dev ask different
+  # questions of it, so the template follows --kind.
+  local aim_tpl=""
+  case "$kind" in
+    research) aim_tpl="AIM.research.md.tpl" ;;
+    *)        aim_tpl="AIM.app-dev.md.tpl" ;;
+  esac
+  if [ -f "$AT_TEMPLATES_DIR/$aim_tpl" ] && { [ ! -e "$project/AIM.md" ] || [ "$force" -eq 1 ]; }; then
+    at_render <"$AT_TEMPLATES_DIR/$aim_tpl" >"$project/AIM.md"
+    at_ok "AIM.md ($([ "$kind" = "research" ] && echo research || echo product) — fill this in BEFORE launching)"
+  fi
+
   for pair in "coordination/README.md.tpl:docs/coordination/README.md" \
               "coordination/_template.md.tpl:docs/coordination/_template.md"; do
     local src="${pair%%:*}" dst="${pair#*:}"
@@ -241,14 +296,52 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
     printf 'roles:\n'
   } >"$project/.agent-teams/team.yaml"
 
-  for r in $(printf '%s' "$roles_csv" | tr ',' ' '); do
-    local rf; rf="$(at_role_file "$r")"
+  local n_roles=0
+  while IFS=$'\t' read -r r base; do
+    [ -n "$r" ] || continue
+    n_roles=$((n_roles + 1))
+    local rf; rf="$(at_role_file "$base")"
+    # NB: iterate \001-separated entries with `read`, not word splitting — a focus
+    # is a sentence, and $(...) splitting would keep only its first word.
+    local focus="" _pair
+    while IFS= read -r _pair; do
+      [ -n "$_pair" ] || continue
+      [ "${_pair%%=*}" = "$r" ] && focus="${_pair#*=}"
+    done <<EOF
+$(printf '%s' "$focus_map" | tr '\001' '\n')
+EOF
+    # Fall back to the preset's suggested assignment, so two instances of one role
+    # never start with identical briefs.
+    [ -n "$focus" ] || focus="$(at_preset_focus "$r" 2>/dev/null || true)"
+
+    local squad="" _sm
+    while IFS= read -r _sm; do
+      [ -n "$_sm" ] || continue
+      [ "${_sm%%=*}" = "$r" ] && squad="${_sm#*=}"
+    done <<EOF
+$squad_map
+EOF
     local desc tools tier perm sandbox
     desc="$(at_role_field "$rf" description)"
     tools="$(at_role_field "$rf" tools)"
     tier="$(at_role_field "$rf" model_tier)";       [ -n "$tier" ] || tier="regular"
     perm="$(at_role_field "$rf" permission_mode)";  [ -n "$perm" ] || perm="acceptEdits"
     sandbox="$(at_role_field "$rf" sandbox)";       [ -n "$sandbox" ] || sandbox="workspace-write"
+
+    # Private subagents: each instance gets its OWN copies, so one role's critic can be
+    # specialised without touching anyone else's.
+    if [ "$subagents" -eq 1 ] && [ -d "$AT_TEMPLATES_DIR/subagents" ]; then
+      mkdir -p "$project/.agent-teams/subagents/$r"
+      local sa
+      for sa in "$AT_TEMPLATES_DIR"/subagents/*.md; do
+        [ -e "$sa" ] || continue
+        [ "$(basename -- "$sa")" = "README.md" ] && continue
+        [ -e "$project/.agent-teams/subagents/$r/$(basename -- "$sa")" ] \
+          || cp "$sa" "$project/.agent-teams/subagents/$r/"
+      done
+      cp "$AT_TEMPLATES_DIR/subagents/README.md" \
+         "$project/.agent-teams/subagents/README.md" 2>/dev/null
+    fi
 
     # Claude subagent definition (Mode A teammates + Mode B roles).
     # Note: no `skills:` key — it is ignored for teammates (see SPIKE-FINDINGS.md),
@@ -260,17 +353,23 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
       [ -n "$tools" ] && printf 'tools: %s\n' "$tools"
       printf -- '---\n\n'
       at_role_body_resolved "$rf"
+      at_focus_block "$r" "$base" "$focus"
+      at_squad_block "$r" "$squad" "$(printf '%s' "$squad_map" | awk -F= -v g="$squad" '$2==g{printf "- %s\n",$1}')"
+      at_delegation_block "$project" "$r"
       at_result_block
       at_mailbox_block "$r"
-      [ "$ref_skills" -eq 1 ] && at_reference_block "$r"
+      [ "$ref_skills" -eq 1 ] && at_reference_block "$base"
     } >"$project/.claude/agents/$r.md"
 
     # Plain-text prompt for --append-system-prompt-file / prompt-prefix runtimes.
     {
       at_role_body_resolved "$rf"
+      at_focus_block "$r" "$base" "$focus"
+      at_squad_block "$r" "$squad" "$(printf '%s' "$squad_map" | awk -F= -v g="$squad" '$2==g{printf "- %s\n",$1}')"
+      at_delegation_block "$project" "$r"
       at_result_block
       at_mailbox_block "$r"
-      [ "$ref_skills" -eq 1 ] && at_reference_block "$r"
+      [ "$ref_skills" -eq 1 ] && at_reference_block "$base"
     } >"$project/.agent-teams/prompts/$r.txt"
 
     # Per-role runtime: --runtime-for wins, else the team default.
@@ -281,14 +380,19 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
 
     {
       printf '  - name: %s\n' "$r"
+      [ "$r" != "$base" ] && printf '    role: %s\n' "$base"
+      [ -n "$focus" ] && printf '    focus: %s\n' "$focus"
+      [ -n "$squad" ] && printf '    group: %s\n' "$squad"
       printf '    runtime: %s\n' "$role_runtime"
       printf '    model_tier: %s\n' "$tier"
       printf '    permission_mode: %s\n' "$perm"
       printf '    sandbox: %s\n' "$sandbox"
       [ "$r" = "$general_role" ] && printf '    general: true\n'
     } >>"$project/.agent-teams/team.yaml"
-  done
-  at_ok ".claude/agents/ ($(printf '%s' "$roles_csv" | tr ',' ' ' | wc -w | tr -d ' ') roles)"
+  done <<EOF
+$instances
+EOF
+  at_ok ".claude/agents/ ($n_roles role instances)"
   at_ok ".agent-teams/team.yaml"
 
   # --- permissions allowlist ---
@@ -392,7 +496,9 @@ cmd_doctor() {
       *) at_die "doctor: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
 
   at_say ""
   at_say "${AT_BOLD}project${AT_RESET}  $project"
@@ -459,7 +565,7 @@ cmd_doctor() {
   if [ -f "$(at_team_yaml "$project")" ]; then
     at_say ""
     at_say "${AT_BOLD}team${AT_RESET}"
-    at_team_roles "$(at_team_yaml "$project")" | while IFS=$'\t' read -r role runtime tier perm sandbox; do
+    at_team_roles "$(at_team_yaml "$project")" | while IFS=$'\037' read -r role runtime tier perm sandbox _m base focus group; do
       printf '  %-18s %-12s %-8s %s%s%s\n' "$role" "$runtime" "$tier" "$AT_DIM" "${perm:-$sandbox}" "$AT_RESET" >&2
     done
   fi
@@ -513,7 +619,9 @@ EOF
       *) at_die "launch: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
 
   local ty; ty="$(at_team_yaml "$project")"
   [ -f "$ty" ] || at_die "no .agent-teams/team.yaml in $project — run: agent-teams init"
@@ -550,7 +658,7 @@ Use --layout bg, or install tmux (apt install tmux / brew install tmux)." ;;
   local general; general="$(at_team_scalar "$ty" general)"
 
   local started=0 failed=0 skipped_general=0
-  while IFS=$'\t' read -r role runtime tier perm sandbox rolemodel; do
+  while IFS=$'\037' read -r role runtime tier perm sandbox rolemodel baserole focus squad; do
     [ -n "$role" ] || continue
     if [ -n "$only" ] && ! printf ',%s,' "$only" | grep -q ",$role,"; then continue; fi
     # The general is the seat you occupy, not a worker to spawn.
@@ -585,7 +693,10 @@ Use --layout bg, or install tmux (apt install tmux / brew install tmux)." ;;
     fi
 
     local sid
-    if sid=$(bash "$sh" launch "$role" "$prompt_file" "$task" "$log" "$project" "$layout" "$target" "$policy" "$resolved" 2>>"$log"); then
+    # Private subagents for THIS role only — passed per session, never shared.
+    local agents_json; agents_json="$(at_subagents_json "$project" "$role" "$runtime")"
+
+    if sid=$(bash "$sh" launch "$role" "$prompt_file" "$task" "$log" "$project" "$layout" "$target" "$policy" "$resolved" "$agents_json" 2>>"$log"); then
       cat >"$(at_sessions "$project")/$role.json" <<EOF
 {
   "role": "$role",
@@ -647,7 +758,7 @@ launch_native() {
   at_say ""
   at_say "${AT_CYAN}   Read AGENTS.md and docs/coordination/README.md first."
   at_say "   Then spawn one teammate per role using these agent types:"
-  at_team_roles "$ty" | while IFS=$'\t' read -r role _rt _tier _p _s; do
+  at_team_roles "$ty" | while IFS=$'\037' read -r role _rt _tier _p _s _m _b _f _g; do
     [ -n "$role" ] && at_say "     - $role"
   done
   at_say ""
@@ -701,7 +812,9 @@ EOF
       *) role="$1"; shift ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
   local ty; ty="$(at_team_yaml "$project")"
   [ -f "$ty" ] || at_die "no team here — run: agent-teams init"
 
@@ -714,12 +827,12 @@ EOF
       # Build "role<TAB>runtime<TAB>tier<TAB>pin<TAB>parent" for the renderer.
       local rowsf; rowsf="$(at_dot "$project")/.tree-rows.tsv"
       : >"$rowsf"
-      at_team_roles "$ty" | while IFS=$'\t' read -r r rt tier perm sandbox pin; do
+      at_team_roles "$ty" | while IFS=$'\037' read -r r rt tier perm sandbox pin base focus group; do
         [ -n "$r" ] || continue
         local rf parent="" model
         rf="$(at_role_file "$r" 2>/dev/null)" && parent="$(at_role_field "$rf" extends)"
         model="$(at_resolve_model "$r" "$tier" "$pin" "$rt" "" "")"
-        printf '%s\t%s\t%s\t%s\t%s\n' "$r" "$rt" "$tier" "${model:-default}" "$parent" >>"$rowsf"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$r" "$rt" "$tier" "${model:-default}" "$parent" "$group" >>"$rowsf"
       done
 
       python3 - "$rowsf" "$statef" "$general" "$(at_team_scalar "$ty" project_name)" <<'PY'
@@ -730,7 +843,8 @@ rows = []
 for line in open(rows_path, errors="replace"):
     parts = line.rstrip("\n").split("\t")
     if len(parts) >= 5 and parts[0]:
-        rows.append(dict(zip(["role", "runtime", "tier", "model", "parent"], parts)))
+        rows.append(dict(zip(["role", "runtime", "tier", "model", "parent", "group"],
+                             parts + [""] * 6)))
 
 try:
     state = json.load(open(state_path))
@@ -777,8 +891,28 @@ print()
 print("  %s" % (team or "team"))
 print("  %s %-26s %-8s %-12s %-9s" % ("", "ROLE", "", "RUNTIME", "MODEL"))
 print("  " + "-" * 68)
-for i, r in enumerate(roots):
-    render(r, "", i == len(roots) - 1, 0)
+
+# Squads first, each as its own block: a squad owns one direction end to end, so it
+# reads as a unit rather than as roles scattered through an alphabetical list.
+squads = []
+for r in roots:
+    g = r.get("group") or ""
+    if g and g not in squads:
+        squads.append(g)
+
+for g in squads:
+    print()
+    print("  squad %s" % g)
+    members = [r for r in roots if (r.get("group") or "") == g]
+    for i, r in enumerate(members):
+        render(r, "  ", i == len(members) - 1, 0)
+
+loose = [r for r in roots if not (r.get("group") or "")]
+if loose:
+    if squads:
+        print()
+    for i, r in enumerate(loose):
+        render(r, "", i == len(loose) - 1, 0)
 print()
 print("  ! blocked   x errored   > working   - idle   . stopped   ? not started")
 print()
@@ -790,7 +924,7 @@ PY
       [ -n "$role" ] || at_die "usage: agent-teams team add <role>"
       at_role_file "$role" >/dev/null 2>&1 \
         || at_die "no such role '$role' — see: agent-teams role list"
-      at_team_roles "$ty" | grep -q "^$role	" && at_die "$role is already in this team"
+      at_team_roles "$ty" | grep -q "^$role$(printf '\037')" && at_die "$role is already in this team"
       local rf; rf="$(at_role_file "$role")"
       {
         printf '  - name: %s\n' "$role"
@@ -806,7 +940,7 @@ PY
 
     remove)
       [ -n "$role" ] || at_die "usage: agent-teams team remove <role>"
-      at_team_roles "$ty" | grep -q "^$role	" || at_die "$role is not in this team"
+      at_team_roles "$ty" | grep -q "^$role$(printf '\037')" || at_die "$role is not in this team"
       [ "$role" = "$(at_team_scalar "$ty" general)" ] \
         && at_die "$role is the general — move the general first"
       python3 - "$ty" "$role" <<'PY' || at_die "could not update team.yaml"
@@ -833,7 +967,7 @@ PY
 
     move)
       [ -n "$role" ] || at_die "usage: agent-teams team move <role> [--runtime R] [--extends P] [--general]"
-      at_team_roles "$ty" | grep -q "^$role	" || at_die "$role is not in this team"
+      at_team_roles "$ty" | grep -q "^$role$(printf '\037')" || at_die "$role is not in this team"
 
       if [ -n "$newrt" ]; then
         case "$newrt" in claude-code|codex|pi) ;; *) at_die "--runtime must be claude-code, codex, or pi" ;; esac
@@ -952,7 +1086,9 @@ EOF
       *) at_die "close: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
   local ty; ty="$(at_team_yaml "$project")"
   [ -f "$ty" ] || at_die "no team here — nothing to close"
 
@@ -1055,12 +1191,12 @@ PY
 
   # unread messages
   local unread=""
-  at_team_roles "$ty" | while IFS=$'\t' read -r r _a _b _c _d _e; do
+  at_team_roles "$ty" | while IFS=$'\037' read -r r _a _b _c _d _e _f _g _h; do
     [ -n "$r" ] || continue
     local n; n="$(at_mb_unread_count "$project" "$r")"
     [ "$n" -gt 0 ] && printf '  %-18s %s unread\n' "$r" "$n" >&2
   done
-  unread="$(at_team_roles "$ty" | while IFS=$'\t' read -r r _a _b _c _d _e; do
+  unread="$(at_team_roles "$ty" | while IFS=$'\037' read -r r _a _b _c _d _e _f _g _h; do
     [ -n "$r" ] && [ "$(at_mb_unread_count "$project" "$r")" -gt 0 ] && printf 'x'
   done)"
   [ -n "$unread" ] && { at_say ""; at_warn "some messages were never read"; }
@@ -1187,7 +1323,9 @@ EOF
       *) name="$1"; shift ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
 
   case "$action" in
     list)
@@ -1297,7 +1435,7 @@ EOF
       if [ "$add" -eq 1 ]; then
         local ty; ty="$(at_team_yaml "$project")"
         [ -f "$ty" ] || at_die "no team.yaml yet — run agent-teams init first"
-        if at_team_roles "$ty" | grep -q "^$name	"; then
+        if at_team_roles "$ty" | grep -q "^$name$(printf '\037')"; then
           at_warn "$name is already in team.yaml"
         else
           {
@@ -1346,14 +1484,16 @@ EOF
          fi; shift ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
   local ty; ty="$(at_team_yaml "$project")"
   [ -f "$ty" ] || at_die "no team here — run: agent-teams init"
   [ -n "$text" ] || at_die "nothing to send"
 
   if [ "$bcast" -eq 1 ]; then
     local n=0
-    at_team_roles "$ty" | while IFS=$'\t' read -r r _a _b _c _d _e; do
+    at_team_roles "$ty" | while IFS=$'\037' read -r r _a _b _c _d _e _f _g _h; do
       [ -n "$r" ] || continue
       [ "$r" = "$from" ] && continue
       at_mb_append "$project" "$r" "$from" message "$urgent" "$text" >/dev/null && at_ok "→ $r"
@@ -1362,7 +1502,7 @@ EOF
   fi
 
   [ -n "$to" ] || at_die "usage: agent-teams send <role> \"<message>\""
-  at_team_roles "$ty" | grep -q "^$to	" || at_die "role '$to' is not in this team"
+  at_team_roles "$ty" | grep -q "^$to$(printf '\037')" || at_die "role '$to' is not in this team"
   local id; id="$(at_mb_append "$project" "$to" "$from" message "$urgent" "$text")" \
     || at_die "could not write inbox"
   at_ok "sent to $to ($id)"
@@ -1391,7 +1531,9 @@ EOF
       *) if [ -z "$role" ]; then role="$1"; else text="$1"; fi; shift ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
   [ -n "$role" ] && [ -n "$text" ] || at_die "usage: agent-teams steer <role> \"<message>\""
 
   # Always record it, so there is an audit trail even when typed live.
@@ -1436,13 +1578,15 @@ EOF
       *) role="$1"; shift ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
 
   if [ -z "$role" ]; then
     local ty; ty="$(at_team_yaml "$project")"
     [ -f "$ty" ] || at_die "no team here"
     at_say ""
-    at_team_roles "$ty" | while IFS=$'\t' read -r r _a _b _c _d _e; do
+    at_team_roles "$ty" | while IFS=$'\037' read -r r _a _b _c _d _e _f _g _h; do
       [ -n "$r" ] || continue
       local n; n="$(at_mb_unread_count "$project" "$r")"
       if [ "$n" -gt 0 ]; then
@@ -1504,7 +1648,9 @@ EOF
       *) at_die "model: unknown argument '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
   local ty; ty="$(at_team_yaml "$project")"
   [ -f "$ty" ] || at_die "no .agent-teams/team.yaml in $project — run: agent-teams init"
 
@@ -1513,7 +1659,7 @@ EOF
       at_say ""
       printf '  %-16s %-13s %-9s %-14s %s\n' "ROLE" "RUNTIME" "TIER" "MODEL" "DECIDED BY" >&2
       at_say "  $(printf '%.0s-' 1 2 3 4 5 6 7 8 9 10)------------------------------------------------------------"
-      at_team_roles "$ty" | while IFS=$'\t' read -r r rt tier perm sandbox pin; do
+      at_team_roles "$ty" | while IFS=$'\037' read -r r rt tier perm sandbox pin base focus group; do
         [ -n "$r" ] || continue
         local resolved reason
         resolved="$(at_resolve_model "$r" "$tier" "$pin" "$rt" "" "")"
@@ -1533,7 +1679,7 @@ EOF
       ;;
     set)
       [ -n "$role" ] && [ -n "$value" ] || at_die "usage: agent-teams model set <role> <tier|model>"
-      at_team_roles "$ty" | grep -q "^$role	" || at_die "role '$role' is not in this team"
+      at_team_roles "$ty" | grep -q "^$role$(printf '\037')" || at_die "role '$role' is not in this team"
 
       local key="model" newval="$value"
       if at_valid_tier "$value"; then key="model_tier"; fi
@@ -1631,7 +1777,9 @@ EOF
       *) at_die "skills: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
   local dest="$project/.agent-teams/reference-skills"
 
   case "$action" in
@@ -1641,7 +1789,7 @@ EOF
       at_say ""
       local ty; ty="$(at_team_yaml "$project")"
       if [ -f "$ty" ]; then
-        at_team_roles "$ty" | while IFS=$'\t' read -r role _r _t _p _s; do
+        at_team_roles "$ty" | while IFS=$'\037' read -r role _r _t _p _s _m _b _f _g; do
           [ -n "$role" ] && printf '  %-18s %s\n' "$role" "$(at_role_domains "$role")" >&2
         done
       else
@@ -1702,7 +1850,9 @@ cmd_status() {
       *) at_die "status: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
 
   if [ ! -f "$AT_MONITOR_DIR/collectors.py" ]; then
     at_die "monitor/collectors.py is missing from the skill"
@@ -1742,7 +1892,9 @@ EOF
       *) at_die "monitor: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
   [ -f "$AT_MONITOR_DIR/server.py" ] || at_die "monitor/server.py is missing from the skill"
   exec python3 "$AT_MONITOR_DIR/server.py" --project "$project" --port "$port" --bind "$bind" --refresh "$refresh"
 }
@@ -1760,7 +1912,9 @@ cmd_attach() {
       *) role="$1"; shift ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
   [ -n "$role" ] || at_die "attach: which role? e.g. agent-teams attach engineering"
 
   local sf="$(at_sessions "$project")/$role.json"
@@ -1803,7 +1957,9 @@ cmd_stop() {
       *) at_die "stop: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
 
   local sd; sd="$(at_sessions "$project")"
   [ -d "$sd" ] || { at_info "no sessions recorded"; return 0; }

@@ -246,3 +246,25 @@ dashboard. Without them, a wedged agent waits for someone to be watching.
 running, a coordination note is unfinished, or commits are sitting in an agent worktree
 and therefore **not on your branch**. It then writes `docs/coordination/_closeout-*.md`
 with each role's final state, token spend, and what was left unresolved.
+
+## Aim, instances, and squads
+
+`init` writes **`AIM.md`** (research or product, per `--kind`) — the project's question or
+problem, success criteria fixed in advance, and what is out of scope. `AGENTS.md` is
+*how*; `AIM.md` is *what for*. If it is still full of TODOs, raise that before launching:
+a team working from an unfilled aim invents its own objectives.
+
+**Instances.** `research:lit` makes `research-lit` from the `research` role; `analysis*2`
+makes `analysis-1` and `analysis-2`. Each is a first-class role with its own prompt,
+inbox, session, and note. `--focus-for <instance>="..."` says which slice it owns —
+without one, two instances of a role do the same work twice.
+
+**Squads.** `--squad "attn:research,analysis,engineering"` creates a group that owns one
+direction end to end. Squads decide internally without the lead, and are told not to
+converge on each other — divergence is the point of running them in parallel. Notes and
+commits are prefixed `<squad>/`.
+
+**Subagents.** Roles delegate whenever they judge it useful; every role carries the
+`Agent` tool. Nothing needs pre-defining. Optional private specialists live in
+`.agent-teams/subagents/<role>/` (`init --subagents`) and are passed per session, so they
+are invisible to other roles.

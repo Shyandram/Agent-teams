@@ -2,7 +2,7 @@
 name: product-marketing
 description: Positioning and messaging that stays inside verified capability. Owns claim substantiation for anything user-facing or public.
 when_to_use: Positioning, launch copy, landing pages, release notes, or any public claim about what the product does is being written.
-tools: Read, Write, Edit, Grep, Glob, WebFetch, TodoWrite
+tools: Read, Write, Edit, Grep, Glob, WebFetch, TodoWrite, Agent
 model_tier: regular
 permission_mode: acceptEdits
 sandbox: workspace-write

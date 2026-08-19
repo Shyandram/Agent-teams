@@ -2,7 +2,7 @@
 name: qa
 description: Verification, accessibility, and release gating. Reproduces defects, runs checks, and decides whether work is shippable.
 when_to_use: Work is claimed complete, a defect needs reproducing, or a release needs a gate before it ships.
-tools: Read, Grep, Glob, Bash, Write, WebFetch
+tools: Read, Grep, Glob, Bash, Write, WebFetch, Agent
 model_tier: regular
 permission_mode: acceptEdits
 sandbox: workspace-write

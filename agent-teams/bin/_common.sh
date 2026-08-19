@@ -128,23 +128,38 @@ at_check_placeholders() {
 }
 
 # ---------- team.yaml reader (no yq dependency) ----------
-# Emits: role<TAB>runtime<TAB>model_tier<TAB>permission_mode<TAB>sandbox<TAB>model
-# The sixth field is an optional concrete model pin that beats the tier mapping.
+# Emits 8 fields separated by US (\037), NOT tab.
+#
+# Tab is IFS-*whitespace*, so bash `read` collapses runs of tabs and silently drops
+# empty fields — an empty `model` would shift `base_role` into its place. US is not
+# whitespace, so empty fields survive. Readers must use IFS=$'\037'.
+#
+# Fields:
+#   name  runtime  model_tier  permission_mode  sandbox  model  base_role  focus  group
+#
+# `name` is the INSTANCE name and is unique. `base_role` is the role definition it is
+# built from, which lets a team run several instances of one role at once —
+# research-lit and research-data are both `research`, with different `focus`.
+# When `role:` is absent the instance IS the role, and base_role == name.
 at_team_roles() {
   local f="$1"
   [ -f "$f" ] || return 0
   awk '
     function flush() {
       if (role != "") {
-        printf "%s\t%s\t%s\t%s\t%s\t%s\n",
+        printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n",
           role,
           (runtime  != "" ? runtime  : dflt_rt),
           (tier     != "" ? tier     : "regular"),
           (perm     != "" ? perm     : ""),
           (sandbox  != "" ? sandbox  : ""),
-          model
+          model,
+          (base     != "" ? base     : role),
+          focus,
+          group
       }
       role = ""; runtime = ""; tier = ""; perm = ""; sandbox = ""; model = ""
+      base = ""; focus = ""; group = ""
     }
     function val(s) { sub(/^[^:]*:[[:space:]]*/, "", s); gsub(/^["\047]|["\047][[:space:]]*$/, "", s); sub(/[[:space:]]*#.*$/, "", s); gsub(/[[:space:]]+$/, "", s); return s }
     /^default_runtime:/ { dflt_rt = val($0); next }
@@ -157,6 +172,9 @@ at_team_roles() {
     /^[[:space:]]*permission_mode:/ { perm    = val($0); next }
     /^[[:space:]]*sandbox:/         { sandbox = val($0); next }
     /^[[:space:]]*model:/           { model   = val($0); next }
+    /^[[:space:]]*role:/            { base    = val($0); next }
+    /^[[:space:]]*focus:/           { focus   = val($0); next }
+    /^[[:space:]]*group:/           { group   = val($0); next }
     END { flush() }
   ' "$f"
 }
@@ -414,12 +432,119 @@ so in your coordination note.
 EOF
 }
 
+# ---------- role instance specs ----------
+# A team often needs several instances of ONE role working different angles at once —
+# three researchers on three literatures, two engineers on two services. A spec in
+# --roles expands to instances:
+#
+#   research            -> research                      (the plain case)
+#   research:lit        -> research-lit      base research
+#   analysis*3          -> analysis-1, analysis-2, analysis-3
+#
+# Emits "instance<TAB>base" per line.
+at_expand_role_spec() {
+  local spec="$1" base suffix n i
+  case "$spec" in
+    *:*)
+      base="${spec%%:*}"; suffix="${spec#*:}"
+      printf '%s-%s\t%s\n' "$base" "$suffix" "$base"
+      ;;
+    *\*[0-9]*)
+      base="${spec%%\**}"; n="${spec#*\*}"
+      case "$n" in ''|*[!0-9]*) n=1 ;; esac
+      [ "$n" -lt 1 ] && n=1
+      [ "$n" -gt 24 ] && n=24     # a sanity ceiling, not a real limit
+      if [ "$n" -eq 1 ]; then
+        printf '%s\t%s\n' "$base" "$base"
+      else
+        i=1
+        while [ "$i" -le "$n" ]; do
+          printf '%s-%s\t%s\n' "$base" "$i" "$base"
+          i=$((i + 1))
+        done
+      fi
+      ;;
+    *)
+      printf '%s\t%s\n' "$spec" "$spec"
+      ;;
+  esac
+}
+
+# Emitted into a squad member's prompt. A squad is a small group that owns one direction
+# end to end — its own thinking and its own implementation — so several directions can be
+# explored at once without the whole team switching between them.
+at_squad_block() {
+  local instance="$1" squad="$2" members="$3"
+  [ -n "$squad" ] || return 0
+  cat <<EOF
+
+## Your squad: ${squad}
+
+You belong to squad **${squad}**, which owns this direction end to end. Its members:
+
+${members}
+
+The squad is the unit that decides. Coordinate inside it freely — message each other
+directly, hand work back and forth, converge on an answer together. You do not need the
+lead's approval to change course *within* your direction.
+
+Other squads are pursuing different directions in parallel. Do not converge on them, do
+not adopt their approach because it looks further along, and do not quietly merge your
+work with theirs. Divergence is the point: if every squad ends up doing the same thing,
+the parallelism bought nothing. If you believe another squad's direction is strictly
+better, say so to the lead as a finding — do not just switch.
+
+Prefix your coordination notes and commits with \`${squad}/\` so each direction's work
+can be told apart and compared at the end.
+EOF
+}
+
+# Emitted into an instance's prompt so it knows which slice of the role is its own.
+at_focus_block() {
+  local instance="$1" base="$2" focus="$3"
+  [ -n "$focus" ] || return 0
+  cat <<EOF
+
+## Your assignment
+
+You are **${instance}**, one of several ${base} roles working in parallel. Yours is:
+
+    ${focus}
+
+Stay inside it. Other ${base} instances are covering the rest, and two roles doing the
+same work is the main way a parallel team wastes itself. If you find something that
+belongs to another instance, message them rather than doing it — and if your assignment
+turns out to overlap someone else's, say so instead of quietly picking a side.
+
+Name your coordination note and your commits after **${instance}**, not after the role,
+so the work can be told apart afterwards.
+EOF
+}
+
 # ---------- presets ----------
 at_preset_roles() {
   case "$1" in
-    research)   printf 'lead,research,analysis,engineering,qa' ;;
-    app-dev)    printf 'lead,engineering,ux,qa,devops' ;;
-    full-stack) printf 'lead,engineering,ux,qa,devops,product-marketing,legal' ;;
+    # Research runs several instances of one role in parallel — three literatures,
+    # two hypotheses — because that is where the parallelism actually pays.
+    research)        printf 'lead,research:lit,research:data,analysis:primary,analysis:ablation,engineering,qa' ;;
+    research-small)  printf 'lead,research,analysis,qa' ;;
+    app-dev)         printf 'lead,engineering:api,engineering:ui,qa,devops' ;;
+    app-dev-small)   printf 'lead,engineering,qa' ;;
+    full-stack)      printf 'lead,engineering:api,engineering:ui,ux,qa,devops,product-marketing,legal' ;;
+    *) return 1 ;;
+  esac
+}
+
+# Suggested focus for the instances a preset creates. A focus the user never writes is
+# worse than none: two instances of one role with no assignment do the same work twice.
+at_preset_focus() {
+  case "$1" in
+    research-lit)      printf 'prior work and existing results: what is already known, and what nobody has tried' ;;
+    research-data)     printf 'sources and datasets: acquisition, licensing, validation, provenance' ;;
+    analysis-primary)  printf 'the primary hypothesis in AIM.md, and the evidence that would falsify it' ;;
+    analysis-ablation) printf 'ablations, negative controls, and sensitivity of the primary result' ;;
+    engineering-api)   printf 'backend, data model, and interfaces' ;;
+    engineering-ui)    printf 'client, presentation, and user-facing behaviour' ;;
     *) return 1 ;;
   esac
 }

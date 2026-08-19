@@ -2,7 +2,7 @@
 name: devops
 description: Deployment, environments, CI/CD, and infrastructure. Owns reproducible builds and safe rollout; external actions require explicit authorization.
 when_to_use: Pipelines, environment config, infrastructure definitions, releases, or rollbacks are being changed or diagnosed.
-tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite
+tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, Agent
 model_tier: regular
 permission_mode: acceptEdits
 sandbox: workspace-write

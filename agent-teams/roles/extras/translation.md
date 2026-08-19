@@ -2,7 +2,7 @@
 name: translation
 description: Localization parity and translation quality. Preserves key structure across locales and translates meaning rather than word order.
 when_to_use: User-facing strings are being localized, locale files are diverging, or source copy needs review for translatability.
-tools: Read, Write, Edit, Grep, Glob, TodoWrite
+tools: Read, Write, Edit, Grep, Glob, TodoWrite, Agent
 model_tier: regular
 permission_mode: acceptEdits
 sandbox: workspace-write

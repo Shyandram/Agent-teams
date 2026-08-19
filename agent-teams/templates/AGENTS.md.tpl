@@ -17,6 +17,17 @@ coordination note in `docs/coordination/` with status `active`, `blocked`, or `h
 
 ---
 
+## The aim
+
+`AIM.md` at the repository root states what this project is trying to achieve — the
+question or the problem, the success criteria, and what is explicitly out of scope.
+**Read it before your role brief.** Where this file describes *how* to work, `AIM.md`
+describes *what for*.
+
+If a task does not serve something written in `AIM.md`, say so rather than doing it. If
+`AIM.md` is still full of TODOs, that is the first thing to raise — a team working from
+an unfilled aim invents its own objectives and diverges quietly.
+
 ## Project map
 
 > **Fill this in.** Keep it to one line per entry. It is the map every new session uses to

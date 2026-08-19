@@ -60,8 +60,18 @@ two-space indented starting `- name:`. Keep emitted files in exactly this shape.
 An optional `model:` key pins a concrete model for that role and beats the tier — it is
 where `agent-teams model set` records the lead's judgement.
 
-`at_team_roles` emits six tab-separated fields:
-`role`, `runtime`, `model_tier`, `permission_mode`, `sandbox`, `model`.
+`at_team_roles` emits **nine fields separated by US (`\037`), not tab**:
+`name`, `runtime`, `model_tier`, `permission_mode`, `sandbox`, `model`, `role` (base),
+`focus`, `group`.
+
+Tab would be wrong here: tab is IFS-*whitespace*, so bash `read` collapses runs of tabs
+and silently drops empty fields — an empty `model` would shift `role` into its place. US
+is not whitespace, so empty fields survive. Every reader must use `IFS=$'\037'`.
+
+`name` is the instance name and is unique; `role` is the definition it is built from.
+That is what lets several instances of one role run at once (`research-lit` and
+`research-data` are both `research`), each with its own `focus`. `group` names the squad
+an instance belongs to.
 
 Model precedence is resolved in exactly one place, `at_resolve_model`, highest first:
 `--model-for` > `--tier-for` > `model:` > `AGENT_TEAMS_MODEL` > `model_tier`.

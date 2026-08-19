@@ -2,7 +2,7 @@
 name: legal
 description: Licensing, privacy, trademark, and compliance review. Flags risk and identifies what requires qualified counsel; does not provide legal advice.
 when_to_use: Dependencies or assets are added, personal data is handled, names and branding are chosen, or a compliance claim is about to be made.
-tools: Read, Grep, Glob, Write, WebFetch, WebSearch
+tools: Read, Grep, Glob, Write, WebFetch, WebSearch, Agent
 model_tier: smart
 permission_mode: acceptEdits
 sandbox: workspace-write

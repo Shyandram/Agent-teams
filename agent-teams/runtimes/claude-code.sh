@@ -34,7 +34,7 @@ rt_map_tier() {
 # rt_launch <role> <prompt_file> <task> <log> <project> <layout> [tmux_target] [perm_mode] [model_tier]
 rt_launch() {
   local role="$1" prompt_file="$2" task="$3" log="$4" project="$5" layout="$6"
-  local tmux_target="${7:-}" perm="${8:-acceptEdits}" model="${9:-}"
+  local tmux_target="${7:-}" perm="${8:-acceptEdits}" model="${9:-}" agents="${10:-}"
   # Arg 9 is an already-resolved model name (the launcher applies the precedence
   # chain in at_resolve_model). Fall back only if invoked directly.
   [ -n "$model" ] || model="$(rt_map_tier regular)"
@@ -47,8 +47,10 @@ rt_launch() {
     # tears the window down — the exact opposite of what this layout is for. Log with
     # `pipe-pane` instead, which copies output without touching the TTY.
     local sess="${tmux_target%%:*}" win="${tmux_target#*:}"
+    local agents_arg=""
+    [ -n "$agents" ] && agents_arg="--agents '$agents' "
     tmux new-window -d -t "$sess" -n "$win" -c "$project" \
-      "claude --append-system-prompt-file '$prompt_file' --permission-mode '$perm' --model '$model' -n 'at:$role' '$task'" \
+      "claude --append-system-prompt-file '$prompt_file' --permission-mode '$perm' --model '$model' ${agents_arg}-n 'at:$role' '$task'" \
       || return 1
     # Keep the window on failure so the error is readable rather than vanishing.
     tmux set-option -w -t "$tmux_target" remain-on-exit on 2>/dev/null || true
@@ -61,11 +63,20 @@ rt_launch() {
   # NOTE: --session-id is NOT honoured for --bg (verified: the session gets a fresh id),
   # so we must read the id back rather than assign one.
   local out
-  out=$(cd "$project" && claude --bg "$task" \
-          --append-system-prompt-file "$prompt_file" \
-          --permission-mode "$perm" \
-          --model "$model" \
-          -n "at:$role" 2>&1 </dev/null) || { printf '%s\n' "$out" >>"$log"; return 1; }
+  if [ -n "$agents" ]; then
+    out=$(cd "$project" && claude --bg "$task" \
+            --append-system-prompt-file "$prompt_file" \
+            --permission-mode "$perm" \
+            --model "$model" \
+            --agents "$agents" \
+            -n "at:$role" 2>&1 </dev/null) || { printf '%s\n' "$out" >>"$log"; return 1; }
+  else
+    out=$(cd "$project" && claude --bg "$task" \
+            --append-system-prompt-file "$prompt_file" \
+            --permission-mode "$perm" \
+            --model "$model" \
+            -n "at:$role" 2>&1 </dev/null) || { printf '%s\n' "$out" >>"$log"; return 1; }
+  fi
   printf '%s\n' "$out" >>"$log"
 
   local short

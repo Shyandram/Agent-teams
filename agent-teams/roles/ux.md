@@ -2,7 +2,7 @@
 name: ux
 description: Product design and information hierarchy. Owns how uncertainty, provenance, loading, empty, and error states are surfaced to users.
 when_to_use: An interface, flow, layout, or piece of user-facing copy is being designed or changed.
-tools: Read, Write, Edit, Grep, Glob, TodoWrite
+tools: Read, Write, Edit, Grep, Glob, TodoWrite, Agent
 model_tier: regular
 permission_mode: acceptEdits
 sandbox: workspace-write

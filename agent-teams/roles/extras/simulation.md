@@ -2,7 +2,7 @@
 name: simulation
 description: Simulation and Monte Carlo integrity. Owns provenance classes for generated results, seeded reproducibility, and honest framing of what a simulation proves.
 when_to_use: Results come from a simulation, Monte Carlo run, synthetic dataset, or historical replay rather than from live observation.
-tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite
+tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, Agent
 model_tier: smart
 permission_mode: acceptEdits
 sandbox: workspace-write
