@@ -1,6 +1,72 @@
-# Installing the runtimes
+# Installation
 
-You need **at least one** runtime. A team can mix them, so a common setup is Claude Code
+Two separate things: **installing this skill** into your agent CLIs, and **installing the
+runtimes** themselves. Do the runtimes first if you have none.
+
+---
+
+# Part 1 — install this skill
+
+```bash
+bash /path/to/agent-teams/install.sh
+```
+
+With no arguments it installs into every runtime it finds on `PATH`. It **symlinks** by
+default, so editing the skill directory updates every runtime at once.
+
+```bash
+bash install.sh --claude      # only Claude Code
+bash install.sh --codex       # only Codex
+bash install.sh --pi          # only pi (untested)
+bash install.sh --copy        # snapshot instead of symlink
+bash install.sh --dry-run     # show what would happen
+bash install.sh --uninstall   # remove what it installed
+```
+
+It refuses to overwrite a real directory it did not create, so an existing skill of the
+same name is never clobbered.
+
+### Where it lands
+
+| Runtime | Path | Status |
+|---|---|---|
+| Claude Code | `~/.claude/skills/agent-teams/` | Verified |
+| Codex | `~/.codex/skills/agent-teams/` | Verified |
+| pi | `~/.pi/agent/packages/agent-teams/` + `pi install <path>` | Untested |
+
+Claude Code and Codex read the **same `SKILL.md` format** — same `name` / `description`
+frontmatter — so one directory serves both. (Codex keeps its own bundled skills under
+`~/.codex/skills/.system/`; user skills sit at the top level.)
+
+`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `PI_HOME` are honoured if set.
+
+For pi the script stages a package directory with a `skills/` convention folder and then
+prints the command to register it:
+
+```bash
+pi install ~/.pi/agent/packages/agent-teams
+```
+
+### After installing
+
+Start a **new** session so the runtime picks the skill up, then ask it to "set up an agent
+team for this project". Or skip the skill layer and call the CLI directly — it works
+standalone by absolute path:
+
+```bash
+bash /path/to/agent-teams/bin/agent-teams doctor
+```
+
+### Project-local instead of global
+
+To scope the skill to one repository, put it in that repo's `.claude/skills/` rather than
+`~/.claude/skills/`, or pass `claude --plugin-dir /path/to/agent-teams`.
+
+---
+
+# Part 2 — install the runtimes
+
+You need **at least one**. A team can mix them, so a common setup is Claude Code
 plus Codex.
 
 Run `agent-teams doctor` at any point — it reports what is installed, what is

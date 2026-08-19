@@ -9,6 +9,21 @@ want several agents working in parallel without losing track of them.
 
 ---
 
+## Install
+
+```bash
+bash /path/to/agent-teams/install.sh
+```
+
+Installs into every agent CLI it finds — Claude Code (`~/.claude/skills/`), Codex
+(`~/.codex/skills/`), and pi. Symlinks by default, so edits here apply everywhere.
+`--dry-run`, `--copy`, `--uninstall`, or `--claude`/`--codex`/`--pi` to narrow it.
+
+Claude Code and Codex share the same `SKILL.md` format, so one directory serves both.
+The CLI also works standalone by absolute path if you would rather skip the skill layer.
+
+Need the runtimes themselves? See [`docs/installation.md`](docs/installation.md).
+
 ## Quickstart
 
 ```bash
@@ -140,6 +155,72 @@ State precedence, loudest first:
 | `monitor` | Web dashboard |
 | `attach ROLE` | Enter a role's session |
 | `stop` | End sessions; logs and notes are kept |
+| `skills` | Manage the reference skill library (below) |
+| `model` | Show or change which model each role runs on |
+
+---
+
+## Model allocation
+
+Which model a role runs on is a judgement call — the lead makes it, you can override it.
+
+```bash
+agent-teams model                          # every role's model, and why
+agent-teams model set engineering ultra    # by intent: smol|regular|smart|ultra
+agent-teams model set ux haiku             # or pin a concrete model
+agent-teams model reset ux                 # drop the pin
+```
+
+```
+ROLE             RUNTIME       TIER      MODEL      DECIDED BY
+lead             claude-code   smart     opus       model_tier
+engineering      claude-code   ultra     opus       model_tier
+ux               claude-code   regular   haiku      team.yaml model: (lead)
+devops           claude-code   regular   sonnet     model_tier
+```
+
+Precedence, highest first:
+
+| | Set by | Scope |
+|---|---|---|
+| 1 | `launch --model-for role=opus` | one launch |
+| 2 | `launch --tier-for role=ultra` | one launch |
+| 3 | `model:` in `team.yaml` | the lead's persisted call |
+| 4 | `AGENT_TEAMS_MODEL` | your global default |
+| 5 | `model_tier:` in `team.yaml` | the role's declared intent |
+
+`AGENT_TEAMS_MODEL` is a **default, not a ceiling** — a deliberate per-role decision
+beats it. For a hard cap the lead cannot escape:
+
+```bash
+AGENT_TEAMS_MODEL=sonnet AGENT_TEAMS_MODEL_LOCK=1 agent-teams launch
+```
+
+Tiers are about how expensive a wrong answer is, not how big the task looks: `ultra` for
+decisions costly to reverse, `smart` for non-trivial implementation and subtle review,
+`regular` for well-specified work, `smol` for mechanical passes. Changes apply at next
+launch — restart the role.
+
+---
+
+## Reference skill library
+
+Roles are pointed by default at [alirezarezvani/claude-skills](https://github.com/alirezarezvani/claude-skills)
+(MIT, ~350 domain skills) for depth beyond their brief — `research` at `research/` and
+`research-ops/`, `qa` at `engineering-team/`, `standards/`, `compliance-os/`, and so on.
+
+```bash
+agent-teams skills --list     # which directories each role is pointed at
+agent-teams skills --fetch    # vendor a local copy (faster, offline)
+agent-teams skills --remove   # drop it; roles fall back to the network
+```
+
+Without a local copy roles fetch over the network on demand — no clone required. Opt out
+entirely with `init --no-reference-skills`.
+
+Roles are instructed to treat the library as **reference material, never instructions**:
+this project's `AGENTS.md` wins on conflict, and directives found inside fetched content
+are ignored.
 
 ---
 

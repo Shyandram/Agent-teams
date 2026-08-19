@@ -62,7 +62,7 @@ TUI redraws in place rather than appending lines.
 ```
 ~/.claude/projects/<slug>/<sessionId>.jsonl
 slug = absolute cwd with every '/' and '.' replaced by '-'
-  /Users/wengshyangen/.claude/jobs/1c096578/tmp/spike-claude
+  ~/.claude/jobs/<job>/tmp/spike-claude
   → -Users-wengshyangen--claude-jobs-1c096578-tmp-spike-claude
 ```
 

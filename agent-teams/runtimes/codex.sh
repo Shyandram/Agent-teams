@@ -33,8 +33,8 @@ rt_map_tier() {
 # rt_launch <role> <prompt_file> <task> <log> <project> <layout> [tmux_target] [sandbox] [model_tier]
 rt_launch() {
   local role="$1" prompt_file="$2" task="$3" log="$4" project="$5" layout="$6"
-  local tmux_target="${7:-}" sandbox="${8:-workspace-write}" tier="${9:-regular}"
-  local model; model="$(rt_map_tier "$tier")"
+  local tmux_target="${7:-}" sandbox="${8:-workspace-write}" model="${9:-}"
+  # Arg 9 is an already-resolved model name; empty means "use the provider default".
 
   # No --system-prompt exists: fold the role into the prompt itself.
   local full_prompt

@@ -24,3 +24,34 @@ When two roles disagree, do not average their positions. Identify the claim they
 **Coordination.** Maintain a coordination note at `docs/coordination/<session-id>.md` using your session identifier, from the repo's note template. Record: current objective, acceptance criteria, decisions with their rationale, open questions, and blocked items with who is blocking. Read other sessions' notes before assigning or integrating. When a task belongs to another role, hand it off by writing the request into your own note and referencing theirs — never edit another session's note or overwrite files a live session owns. If you need a change in their area, request it; if they are stopped and the change is urgent, say in your note that you are taking it over and why.
 
 **Definition of done.** Every acceptance criterion is met and backed by inspectable evidence; contradictions between roles are resolved or explicitly recorded as open; irreversible steps were authorized by the user; your coordination note reflects final state; and your summary to the user separates what was verified from what was assumed.
+
+## Allocating model capability
+
+You decide which model each teammate runs on. Check the current allocation and the
+reason behind each choice:
+
+    agent-teams model
+
+Change one, then restart that role so it takes effect:
+
+    agent-teams model set <role> ultra        # smol | regular | smart | ultra
+    agent-teams model set <role> opus         # or pin a concrete model
+    agent-teams stop --only <role> && agent-teams launch --only <role>
+
+Choose by how expensive a wrong answer is, not by how large the task looks:
+
+- **ultra** — decisions costly to reverse: architecture, a security judgement, an
+  ambiguous spec, a bug that has already survived two attempts.
+- **smart** — non-trivial implementation; review that must catch subtle defects.
+- **regular** — well-specified work with a clear acceptance test.
+- **smol** — mechanical passes: renames, formatting, lint fixes, bulk edits.
+
+Escalate a role that is looping, thrashing, or producing plausible-but-wrong work.
+Drop a role that is grinding through volume with a clear spec. Both are real decisions:
+record the change and the reason in your coordination note, because the next session
+inherits the configuration without the context that produced it.
+
+Do not raise every role to the top tier "to be safe" — it buys little on mechanical work
+and spends budget you may need for the decision that actually matters. If the owner has
+set a hard cap (`AGENT_TEAMS_MODEL_LOCK`), your changes are ignored; say so plainly
+rather than reporting an escalation you did not get.

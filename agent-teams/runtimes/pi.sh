@@ -52,8 +52,8 @@ rt_map_tier() {
 # rt_launch <role> <prompt_file> <task> <log> <project> <layout> [tmux_target] [_] [model_tier]
 rt_launch() {
   local role="$1" prompt_file="$2" task="$3" log="$4" project="$5" layout="$6"
-  local tmux_target="${7:-}" _unused="${8:-}" tier="${9:-regular}"
-  local model; model="$(rt_map_tier "$tier")"
+  local tmux_target="${7:-}" _unused="${8:-}" model="${9:-}"
+  # Arg 9 is an already-resolved model name; empty means "use the provider default".
 
   # pi has no documented system-prompt flag, so the role is folded into the prompt,
   # exactly as for Codex.

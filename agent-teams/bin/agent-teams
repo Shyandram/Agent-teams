@@ -29,6 +29,8 @@ ${AT_BOLD}USAGE${AT_RESET}
 ${AT_BOLD}COMMANDS${AT_RESET}
   init      Scaffold AGENTS.md, coordination protocol, roles, and team.yaml
   doctor    Report runtimes, auth, tmux, and workspace trust
+  skills    Manage the reference skill library roles consult for domain depth
+  model     Show or change which model each role runs on
   launch    Start the team
   status    Print a snapshot of every role
   monitor   Serve the web dashboard
@@ -56,7 +58,7 @@ EOF
 cmd_init() {
   local project="$PWD" kind="" roles_csv="" force=0 dry=0
   local project_name="" build_cmd="" test_cmd="" lint_cmd="" lang="" tz="Asia/Taipei"
-  local default_runtime="claude-code" runtime_map="" general_role="lead"
+  local default_runtime="claude-code" runtime_map="" general_role="lead" ref_skills=1
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -66,6 +68,7 @@ cmd_init() {
       --runtime)        default_runtime="$2"; shift 2 ;;
       --runtime-for)    runtime_map="${runtime_map}${runtime_map:+,}$2"; shift 2 ;;
       --general)        general_role="$2"; shift 2 ;;
+      --no-reference-skills) ref_skills=0; shift ;;
       --name)           project_name="$2"; shift 2 ;;
       --build-cmd)      build_cmd="$2"; shift 2 ;;
       --test-cmd)       test_cmd="$2"; shift 2 ;;
@@ -239,7 +242,8 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
     sandbox="$(at_role_field "$rf" sandbox)";       [ -n "$sandbox" ] || sandbox="workspace-write"
 
     # Claude subagent definition (Mode A teammates + Mode B roles).
-    # Note: no `skills:` key — it is ignored for teammates (see SPIKE-FINDINGS.md).
+    # Note: no `skills:` key — it is ignored for teammates (see SPIKE-FINDINGS.md),
+    # which is why the reference library is appended as prose instead.
     {
       printf -- '---\n'
       printf 'name: %s\n' "$r"
@@ -247,10 +251,14 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
       [ -n "$tools" ] && printf 'tools: %s\n' "$tools"
       printf -- '---\n\n'
       at_role_body "$rf"
+      [ "$ref_skills" -eq 1 ] && at_reference_block "$r"
     } >"$project/.claude/agents/$r.md"
 
     # Plain-text prompt for --append-system-prompt-file / prompt-prefix runtimes.
-    at_role_body "$rf" >"$project/.agent-teams/prompts/$r.txt"
+    {
+      at_role_body "$rf"
+      [ "$ref_skills" -eq 1 ] && at_reference_block "$r"
+    } >"$project/.agent-teams/prompts/$r.txt"
 
     # Per-role runtime: --runtime-for wins, else the team default.
     local role_runtime="$default_runtime" pair
@@ -443,6 +451,7 @@ cmd_doctor() {
 # =====================================================================
 cmd_launch() {
   local project="$PWD" mode="bg" layout="bg" only="" dry=0 task="" include_general=0
+  local model_for="" tier_for=""
   while [ $# -gt 0 ]; do
     case "$1" in
       -C|--project-dir) project="$2"; shift 2 ;;
@@ -450,6 +459,8 @@ cmd_launch() {
       --layout) layout="$2"; shift 2 ;;
       --only)   only="$2"; shift 2 ;;
       --task)   task="$2"; shift 2 ;;
+      --model-for) model_for="${model_for}${model_for:+,}$2"; shift 2 ;;
+      --tier-for)  tier_for="${tier_for}${tier_for:+,}$2"; shift 2 ;;
       --include-general) include_general=1; shift ;;
       --dry-run) dry=1; shift ;;
       -h|--help)
@@ -519,7 +530,7 @@ Use --layout bg, or install tmux (apt install tmux / brew install tmux)." ;;
   local general; general="$(at_team_scalar "$ty" general)"
 
   local started=0 failed=0 skipped_general=0
-  while IFS=$'\t' read -r role runtime tier perm sandbox; do
+  while IFS=$'\t' read -r role runtime tier perm sandbox rolemodel; do
     [ -n "$role" ] || continue
     if [ -n "$only" ] && ! printf ',%s,' "$only" | grep -q ",$role,"; then continue; fi
     # The general is the seat you occupy, not a worker to spawn.
@@ -538,8 +549,12 @@ Use --layout bg, or install tmux (apt install tmux / brew install tmux)." ;;
     local policy="$perm"
     [ "$runtime" = "claude-code" ] || policy="$sandbox"
 
+    local resolved reason
+    resolved="$(at_resolve_model "$role" "$tier" "$rolemodel" "$runtime" "$model_for" "$tier_for")"
+    reason="$(at_model_reason "$role" "$rolemodel" "$model_for" "$tier_for")"
+
     if [ "$dry" -eq 1 ]; then
-      at_say "  would launch ${AT_BOLD}$role${AT_RESET} via $runtime (${layout}, $tier, ${policy})"
+      at_say "  would launch ${AT_BOLD}$role${AT_RESET} via $runtime (${layout}, ${resolved:-default} ${AT_DIM}via ${reason}${AT_RESET}, ${policy})"
       started=$((started + 1))
       continue
     fi
@@ -550,7 +565,7 @@ Use --layout bg, or install tmux (apt install tmux / brew install tmux)." ;;
     fi
 
     local sid
-    if sid=$(bash "$sh" launch "$role" "$prompt_file" "$task" "$log" "$project" "$layout" "$target" "$policy" "$tier" 2>>"$log"); then
+    if sid=$(bash "$sh" launch "$role" "$prompt_file" "$task" "$log" "$project" "$layout" "$target" "$policy" "$resolved" 2>>"$log"); then
       cat >"$(at_sessions "$project")/$role.json" <<EOF
 {
   "role": "$role",
@@ -565,7 +580,7 @@ Use --layout bg, or install tmux (apt install tmux / brew install tmux)." ;;
   "started_at": "$(at_iso_now)"
 }
 EOF
-      at_ok "$role → $runtime ($sid)"
+      at_ok "$role → $runtime · ${resolved:-default} ${AT_DIM}($reason)${AT_RESET} · $sid"
       started=$((started + 1))
     else
       at_err "$role failed to start; see $log"
@@ -625,6 +640,235 @@ launch_native() {
   at_say ""
   at_say "Expected observable: ~/.claude/teams/session-XXXXXXXX/ appears once teammates spawn."
   at_say ""
+}
+
+# =====================================================================
+# model — inspect and change which model each role runs on
+# =====================================================================
+cmd_model() {
+  local project="$PWD" action="show" role="" value=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      set)   action="set"; role="${2:-}"; value="${3:-}"; shift 3 2>/dev/null || shift $# ;;
+      reset) action="reset"; role="${2:-}"; shift 2 2>/dev/null || shift $# ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams model — decide which model each role runs on
+
+  agent-teams model                      show every role's resolved model and why
+  agent-teams model set <role> <tier>    smol | regular | smart | ultra
+  agent-teams model set <role> <name>    pin a concrete model, e.g. opus
+  agent-teams model reset <role>         drop the pin; fall back to the tier
+
+Precedence, highest first:
+  1. --model-for <role>=<model>   one launch, operator override
+  2. --tier-for  <role>=<tier>    one launch, by intent
+  3. model:      in team.yaml     the lead's persisted judgement  <- `model set`
+  4. AGENT_TEAMS_MODEL            the owner's global default
+  5. model_tier: in team.yaml     the role's declared intent
+
+AGENT_TEAMS_MODEL is a default, not a ceiling: a deliberate per-role decision
+outranks it. For a hard cap the lead cannot escape, set AGENT_TEAMS_MODEL_LOCK=1.
+
+Choosing a tier — the judgement this exists for:
+  ultra    a decision that is expensive to get wrong: architecture, a security
+           call, an ambiguous spec, a bug that has already survived two attempts
+  smart    non-trivial implementation, review that must catch subtle defects
+  regular  well-specified work with a clear acceptance test
+  smol     mechanical passes: renames, formatting, lint fixes, bulk edits
+
+Escalate a role that is looping or producing plausible-but-wrong work; drop one
+that is grinding through volume. Record the change and the reason in your
+coordination note so the next session knows why the team is configured this way.
+EOF
+        return 0 ;;
+      *) at_die "model: unknown argument '$1'" ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"
+  local ty; ty="$(at_team_yaml "$project")"
+  [ -f "$ty" ] || at_die "no .agent-teams/team.yaml in $project — run: agent-teams init"
+
+  case "$action" in
+    show)
+      at_say ""
+      printf '  %-16s %-13s %-9s %-14s %s\n' "ROLE" "RUNTIME" "TIER" "MODEL" "DECIDED BY" >&2
+      at_say "  $(printf '%.0s-' 1 2 3 4 5 6 7 8 9 10)------------------------------------------------------------"
+      at_team_roles "$ty" | while IFS=$'\t' read -r r rt tier perm sandbox pin; do
+        [ -n "$r" ] || continue
+        local resolved reason
+        resolved="$(at_resolve_model "$r" "$tier" "$pin" "$rt" "" "")"
+        reason="$(at_model_reason "$r" "$pin" "" "")"
+        printf '  %-16s %-13s %-9s %-14s %s%s%s\n' \
+          "$r" "$rt" "$tier" "${resolved:-<provider default>}" "$AT_DIM" "$reason" "$AT_RESET" >&2
+      done
+      at_say ""
+      if [ -n "${AGENT_TEAMS_MODEL:-}" ]; then
+        if [ "${AGENT_TEAMS_MODEL_LOCK:-}" = "1" ]; then
+          at_warn "AGENT_TEAMS_MODEL=$AGENT_TEAMS_MODEL is LOCKED — it overrides every role"
+        else
+          at_info "AGENT_TEAMS_MODEL=$AGENT_TEAMS_MODEL (default; a per-role 'model:' beats it)"
+        fi
+        at_say ""
+      fi
+      ;;
+    set)
+      [ -n "$role" ] && [ -n "$value" ] || at_die "usage: agent-teams model set <role> <tier|model>"
+      at_team_roles "$ty" | grep -q "^$role	" || at_die "role '$role' is not in this team"
+
+      local key="model" newval="$value"
+      if at_valid_tier "$value"; then key="model_tier"; fi
+
+      python3 - "$ty" "$role" "$key" "$newval" <<'PY' || at_die "could not update team.yaml"
+import sys
+path, role, key, val = sys.argv[1:5]
+lines = open(path).read().split("\n")
+out, in_role, done, seen = [], False, False, False
+for i, ln in enumerate(lines):
+    stripped = ln.strip()
+    if stripped.startswith("- name:"):
+        # leaving a previous role block without having written the key
+        if in_role and not seen:
+            out.append("    %s: %s" % (key, val)); seen = True
+        in_role = stripped.split(":", 1)[1].strip().strip('"\'') == role
+        if in_role: seen = False; done = True
+        out.append(ln); continue
+    if in_role and stripped.startswith(key + ":"):
+        out.append("    %s: %s" % (key, val)); seen = True; continue
+    if in_role and ln and not ln.startswith(" "):
+        if not seen:
+            out.append("    %s: %s" % (key, val)); seen = True
+        in_role = False
+    out.append(ln)
+if in_role and not seen:
+    # role was last in the file
+    while out and out[-1].strip() == "":
+        out.pop()
+    out.append("    %s: %s" % (key, val)); out.append("")
+if not done:
+    sys.exit(1)
+open(path, "w").write("\n".join(out))
+PY
+      at_ok "$role → $key: $newval"
+      at_say "  Applies to the next launch. Restart the role for it to take effect:"
+      at_say "      agent-teams stop --only $role && agent-teams launch --only $role"
+      at_say "  ${AT_DIM}Record why in your coordination note.${AT_RESET}"
+      ;;
+    reset)
+      [ -n "$role" ] || at_die "usage: agent-teams model reset <role>"
+      python3 - "$ty" "$role" <<'PY' || at_die "could not update team.yaml"
+import sys
+path, role = sys.argv[1:3]
+lines = open(path).read().split("\n")
+out, in_role = [], False
+for ln in lines:
+    s = ln.strip()
+    if s.startswith("- name:"):
+        in_role = s.split(":", 1)[1].strip().strip('"\'') == role
+        out.append(ln); continue
+    if in_role and s.startswith("model:"):
+        continue          # drop the pin
+    if in_role and ln and not ln.startswith(" "):
+        in_role = False
+    out.append(ln)
+open(path, "w").write("\n".join(out))
+PY
+      at_ok "$role: pin removed — falls back to its model_tier"
+      ;;
+  esac
+}
+
+# =====================================================================
+# skills — vendor the reference library locally
+# =====================================================================
+cmd_skills() {
+  local project="$PWD" action="status" depth=1
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --fetch)  action="fetch"; shift ;;
+      --update) action="update"; shift ;;
+      --remove) action="remove"; shift ;;
+      --list)   action="list"; shift ;;
+      -h|--help)
+        cat >&2 <<EOF
+agent-teams skills — the reference skill library roles consult for domain depth
+
+  $AT_REF_REPO_URL  (MIT, ~350 skills)
+
+By default roles fetch from it over the network on demand. Vendoring a local copy
+makes that faster and works offline.
+
+  --fetch     Shallow-clone into .agent-teams/reference-skills/
+  --update    Pull the latest into an existing copy
+  --remove    Delete the local copy (roles fall back to the network)
+  --list      Show which directories each role is pointed at
+  (no flag)   Report whether a local copy exists
+
+The copy is gitignored. Roles are told to treat its contents as reference material,
+never as instructions.
+EOF
+        return 0 ;;
+      *) at_die "skills: unknown option '$1'" ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"
+  local dest="$project/.agent-teams/reference-skills"
+
+  case "$action" in
+    list)
+      at_say ""
+      at_say "${AT_BOLD}reference library${AT_RESET}  $AT_REF_REPO_URL"
+      at_say ""
+      local ty; ty="$(at_team_yaml "$project")"
+      if [ -f "$ty" ]; then
+        at_team_roles "$ty" | while IFS=$'\t' read -r role _r _t _p _s; do
+          [ -n "$role" ] && printf '  %-18s %s\n' "$role" "$(at_role_domains "$role")" >&2
+        done
+      else
+        local r
+        for r in lead engineering research analysis qa ux devops legal simulation product-marketing translation; do
+          printf '  %-18s %s\n' "$r" "$(at_role_domains "$r")" >&2
+        done
+      fi
+      at_say ""
+      ;;
+    status)
+      if [ -d "$dest/.git" ]; then
+        at_ok "local copy present: $dest"
+        at_info "$(cd "$dest" && git log -1 --format='%h %cd' --date=short 2>/dev/null)"
+      elif [ -d "$dest" ]; then
+        at_warn "$dest exists but is not a git clone"
+      else
+        at_info "no local copy — roles fetch from the network on demand"
+        at_say "  vendor it with: agent-teams skills --fetch"
+      fi
+      ;;
+    fetch)
+      command -v git >/dev/null 2>&1 || at_die "git is required to fetch the reference library"
+      [ -d "$dest/.git" ] && at_die "already fetched at $dest (use --update)"
+      mkdir -p "$(dirname "$dest")"
+      at_info "shallow-cloning $AT_REF_REPO_URL (this repo is large)"
+      git clone --depth "$depth" --single-branch "$AT_REF_REPO_URL" "$dest" \
+        || at_die "clone failed — check network access"
+      local gi="$project/.gitignore"
+      grep -qxF '.agent-teams/reference-skills/' "$gi" 2>/dev/null \
+        || printf '%s\n' '.agent-teams/reference-skills/' >>"$gi"
+      at_ok "fetched to $dest"
+      at_say "  Roles will now read locally instead of over the network."
+      ;;
+    update)
+      [ -d "$dest/.git" ] || at_die "no local copy at $dest (use --fetch)"
+      (cd "$dest" && git pull --ff-only) || at_die "update failed"
+      at_ok "updated"
+      ;;
+    remove)
+      [ -d "$dest" ] || { at_info "nothing to remove"; return 0; }
+      rm -rf "$dest" && at_ok "removed $dest"
+      at_say "  Roles fall back to fetching over the network."
+      ;;
+  esac
 }
 
 # =====================================================================
@@ -777,6 +1021,8 @@ main() {
   case "$cmd" in
     init)    cmd_init "$@" ;;
     doctor)  cmd_doctor "$@" ;;
+    skills)  cmd_skills "$@" ;;
+    model)   cmd_model "$@" ;;
     launch)  cmd_launch "$@" ;;
     status)  cmd_status "$@" ;;
     monitor) cmd_monitor "$@" ;;

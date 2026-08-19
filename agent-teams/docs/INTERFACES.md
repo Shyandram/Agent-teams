@@ -57,6 +57,17 @@ Parsed by a deliberately naive reader (no `yq` dependency): keys one per line, l
 two-space indented starting `- name:`. Keep emitted files in exactly this shape.
 
 `model_tier` is portable intent; each runtime adapter maps it to a concrete model.
+An optional `model:` key pins a concrete model for that role and beats the tier — it is
+where `agent-teams model set` records the lead's judgement.
+
+`at_team_roles` emits six tab-separated fields:
+`role`, `runtime`, `model_tier`, `permission_mode`, `sandbox`, `model`.
+
+Model precedence is resolved in exactly one place, `at_resolve_model`, highest first:
+`--model-for` > `--tier-for` > `model:` > `AGENT_TEAMS_MODEL` > `model_tier`.
+`AGENT_TEAMS_MODEL_LOCK=1` promotes the env var above everything as a hard cap.
+Adapters' `map_tier` must stay a pure tier->model mapping and must not consult the
+environment, or precedence would be decided in two places.
 
 ## 3. `.agent-teams/sessions/<role>.json` — runtime state (written by `launch`)
 
@@ -149,7 +160,7 @@ Sourced or executed with a verb as `$1`:
 | Verb | Args | Contract |
 |---|---|---|
 | `detect` | — | exit 0 if installed **and** authenticated; print a one-line reason on failure |
-| `launch` | `<role> <prompt_file> <task> <log> <project> <layout> [tmux_target]` | start the session; print the session id on stdout; exit non-zero on failure |
+| `launch` | `<role> <prompt_file> <task> <log> <project> <layout> [tmux_target] [policy] [model]` | start the session; print the session id on stdout; exit non-zero on failure. `policy` is `permission_mode` for claude-code and `sandbox` for codex/pi. `model` is already resolved — do not re-map it; empty means "provider default" |
 | `status` | `<project>` | print `role<TAB>state<TAB>session_id` lines for its own runtime |
 | `stop` | `<session_id> [--kill]` | stop cleanly; exit 0 if already gone |
 | `map_tier` | `<model_tier>` | print the concrete model name for this runtime |

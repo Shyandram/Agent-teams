@@ -19,9 +19,9 @@ rt_detect() {
 }
 
 rt_map_tier() {
-  # A global override pins every role to one model — useful for cost control and
-  # for testing a fleet cheaply. e.g. AGENT_TEAMS_MODEL=sonnet
-  if [ -n "${AGENT_TEAMS_MODEL:-}" ]; then printf '%s' "$AGENT_TEAMS_MODEL"; return 0; fi
+  # Pure tier -> model mapping. Overrides (AGENT_TEAMS_MODEL, team.yaml `model:`,
+  # --model-for/--tier-for) are resolved by at_resolve_model before this is reached,
+  # so precedence lives in exactly one place.
   case "$1" in
     smol)    printf 'haiku' ;;
     regular) printf 'sonnet' ;;
@@ -34,8 +34,10 @@ rt_map_tier() {
 # rt_launch <role> <prompt_file> <task> <log> <project> <layout> [tmux_target] [perm_mode] [model_tier]
 rt_launch() {
   local role="$1" prompt_file="$2" task="$3" log="$4" project="$5" layout="$6"
-  local tmux_target="${7:-}" perm="${8:-acceptEdits}" tier="${9:-regular}"
-  local model; model="$(rt_map_tier "$tier")"
+  local tmux_target="${7:-}" perm="${8:-acceptEdits}" model="${9:-}"
+  # Arg 9 is an already-resolved model name (the launcher applies the precedence
+  # chain in at_resolve_model). Fall back only if invoked directly.
+  [ -n "$model" ] || model="$(rt_map_tier regular)"
 
   if [ "$layout" = "tmux" ]; then
     # Interactive session in its own tmux window: survives disconnect, can be taken over.
