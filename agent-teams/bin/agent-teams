@@ -1,0 +1,790 @@
+#!/usr/bin/env bash
+# agent-teams — scaffold, launch, and monitor role-based multi-agent teams.
+#
+#   init     scaffold the contract, roles, and manifest into a project
+#   doctor   report what is installed, authenticated, and trusted
+#   launch   start the team (native in-session, or a detached fleet)
+#   status   one-shot snapshot
+#   monitor  web dashboard over all roles
+#   attach   enter one role's session
+#   stop     end sessions, keeping logs and notes
+#
+# Portability: bash 3.2, POSIX tools. No jq, no yq, no timeout(1).
+
+set -uo pipefail
+
+AT_BIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_common.sh
+. "$AT_BIN_DIR/_common.sh"
+
+AT_VERSION="1.0.0"
+
+usage() {
+  cat >&2 <<EOF
+${AT_BOLD}agent-teams${AT_RESET} v$AT_VERSION — role-based multi-agent teams
+
+${AT_BOLD}USAGE${AT_RESET}
+  agent-teams <command> [options]
+
+${AT_BOLD}COMMANDS${AT_RESET}
+  init      Scaffold AGENTS.md, coordination protocol, roles, and team.yaml
+  doctor    Report runtimes, auth, tmux, and workspace trust
+  launch    Start the team
+  status    Print a snapshot of every role
+  monitor   Serve the web dashboard
+  attach    Enter one role's session
+  stop      Stop sessions (logs and notes are kept)
+
+${AT_BOLD}COMMON OPTIONS${AT_RESET}
+  -C, --project-dir PATH   Target project (default: cwd)
+  -h, --help               Show help for a command
+
+${AT_BOLD}EXAMPLES${AT_RESET}
+  agent-teams init --kind research
+  agent-teams doctor
+  agent-teams launch --mode bg --layout tmux
+  agent-teams monitor --port 8787
+  agent-teams attach engineering
+
+Docs: $AT_SKILL_DIR/docs/
+EOF
+}
+
+# =====================================================================
+# init
+# =====================================================================
+cmd_init() {
+  local project="$PWD" kind="" roles_csv="" force=0 dry=0
+  local project_name="" build_cmd="" test_cmd="" lint_cmd="" lang="" tz="Asia/Taipei"
+  local default_runtime="claude-code" runtime_map="" general_role="lead"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --kind)           kind="$2"; shift 2 ;;
+      --roles)          roles_csv="$2"; shift 2 ;;
+      --runtime)        default_runtime="$2"; shift 2 ;;
+      --runtime-for)    runtime_map="${runtime_map}${runtime_map:+,}$2"; shift 2 ;;
+      --general)        general_role="$2"; shift 2 ;;
+      --name)           project_name="$2"; shift 2 ;;
+      --build-cmd)      build_cmd="$2"; shift 2 ;;
+      --test-cmd)       test_cmd="$2"; shift 2 ;;
+      --lint-cmd)       lint_cmd="$2"; shift 2 ;;
+      --language)       lang="$2"; shift 2 ;;
+      --timezone)       tz="$2"; shift 2 ;;
+      --force)          force=1; shift ;;
+      --dry-run)        dry=1; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams init — scaffold the team contract into a project
+
+  --kind research|app-dev|full-stack|custom   Role preset
+  --roles a,b,c        Explicit roles (implies --kind custom)
+  --name NAME          Project name (default: directory name)
+
+  --runtime RT         Default runtime for every role
+                       (claude-code | codex | pi; default claude-code)
+  --runtime-for R=RT   Override one role's runtime. Repeatable.
+                       e.g. --runtime-for research=codex --runtime-for qa=codex
+  --general ROLE       Which role orchestrates the others (default: lead).
+                       Run the general in whichever CLI you are sitting in;
+                       it launches and supervises the rest.
+  --build-cmd CMD      e.g. "npm run build"
+  --test-cmd CMD       e.g. "npm test"
+  --lint-cmd CMD       e.g. "npm run lint"
+  --language LANG      e.g. TypeScript, Python
+  --timezone TZ        default: Asia/Taipei
+  --force              Overwrite existing files
+  --dry-run            Show what would be written
+
+Presets:
+  research    lead, research, analysis, engineering, qa
+  app-dev     lead, engineering, ux, qa, devops
+  full-stack  lead, engineering, ux, qa, devops, product-marketing, legal
+EOF
+        return 0 ;;
+      *) at_die "init: unknown option '$1'" ;;
+    esac
+  done
+
+  project="$(at_resolve_project "$project")"
+  [ -n "$project_name" ] || project_name="$(basename -- "$project")"
+
+  # Resolve roles
+  if [ -n "$roles_csv" ]; then
+    kind="custom"
+  else
+    [ -n "$kind" ] || kind="app-dev"
+    roles_csv="$(at_preset_roles "$kind")" || at_die "unknown preset '$kind' (research|app-dev|full-stack|custom)"
+  fi
+
+  # Validate runtimes up front so we never write a manifest that cannot launch.
+  case "$default_runtime" in
+    claude-code|codex|pi) ;;
+    *) at_die "--runtime must be claude-code, codex, or pi (got '$default_runtime')" ;;
+  esac
+  local m
+  for m in $(printf '%s' "$runtime_map" | tr ',' ' '); do
+    case "${m#*=}" in
+      claude-code|codex|pi) ;;
+      *) at_die "--runtime-for '$m': runtime must be claude-code, codex, or pi" ;;
+    esac
+    printf ',%s,' "$roles_csv" | grep -q ",${m%%=*}," \
+      || at_die "--runtime-for '$m': role '${m%%=*}' is not in this team ($roles_csv)"
+  done
+  # Default the general to 'lead' when present, else the first role — a custom team
+  # need not contain a role called 'lead'.
+  if ! printf ',%s,' "$roles_csv" | grep -q ",$general_role,"; then
+    if [ "$general_role" = "lead" ]; then
+      general_role="${roles_csv%%,*}"
+    else
+      at_die "--general '$general_role' is not in this team ($roles_csv)"
+    fi
+  fi
+
+  at_info "project : $project"
+  at_info "preset  : $kind"
+  at_info "roles   : $roles_csv"
+  at_info "runtime : $default_runtime${runtime_map:+  (overrides: $runtime_map)}"
+  at_info "general : $general_role"
+
+  # Validate every role resolves before writing anything.
+  local missing="" r
+  local IFS_SAVE="$IFS"; IFS=','
+  for r in $roles_csv; do
+    at_role_file "$r" >/dev/null || missing="$missing $r"
+  done
+  IFS="$IFS_SAVE"
+  [ -z "$missing" ] || at_die "unknown role(s):$missing
+available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.md$//' | tr '\n' ' ')"
+
+  # Collision check
+  local targets="AGENTS.md docs/coordination/README.md .agent-teams/team.yaml"
+  local existing="" t
+  for t in $targets; do
+    [ -e "$project/$t" ] && existing="$existing $t"
+  done
+  if [ -n "$existing" ] && [ "$force" -ne 1 ]; then
+    at_err "these already exist:$existing"
+    at_say "  Re-run with --force to overwrite, or init into a different directory."
+    at_say "  Nothing was written."
+    return 1
+  fi
+
+  if [ "$dry" -eq 1 ]; then
+    at_say ""
+    at_say "would write:"
+    at_say "  $project/AGENTS.md"
+    at_say "  $project/docs/coordination/{README.md,_template.md}"
+    at_say "  $project/.agent-teams/team.yaml"
+    for r in $(printf '%s' "$roles_csv" | tr ',' ' '); do
+      at_say "  $project/.claude/agents/$r.md"
+      at_say "  $project/.agent-teams/prompts/$r.txt"
+    done
+    at_say "  $project/.gitignore  (append .agent-teams/{logs,sessions}/)"
+    return 0
+  fi
+
+  mkdir -p "$project/docs/coordination" \
+           "$project/.claude/agents" \
+           "$project/.agent-teams/prompts" \
+           "$project/.agent-teams/logs" \
+           "$project/.agent-teams/sessions" || at_die "cannot create directories under $project"
+
+  # --- render the contract ---
+  export PROJECT_NAME="$project_name" PROJECT_KIND="$kind" \
+         BUILD_CMD="${build_cmd:-<not configured>}" \
+         TEST_CMD="${test_cmd:-<not configured>}" \
+         LINT_CMD="${lint_cmd:-<not configured>}" \
+         PRIMARY_LANGUAGE="${lang:-<not configured>}" \
+         TIMEZONE="$tz"
+
+  if [ -f "$AT_TEMPLATES_DIR/AGENTS.md.tpl" ]; then
+    at_render <"$AT_TEMPLATES_DIR/AGENTS.md.tpl" >"$project/AGENTS.md"
+    at_check_placeholders "$project/AGENTS.md" || true
+    local sz; sz=$(wc -c <"$project/AGENTS.md" | tr -d ' ')
+    if [ "$sz" -gt 32000 ]; then
+      at_warn "AGENTS.md is ${sz} bytes; Codex truncates past 32768. Trim it."
+    fi
+    at_ok "AGENTS.md (${sz} bytes)"
+  else
+    at_warn "missing template: AGENTS.md.tpl"
+  fi
+
+  for pair in "coordination/README.md.tpl:docs/coordination/README.md" \
+              "coordination/_template.md.tpl:docs/coordination/_template.md"; do
+    local src="${pair%%:*}" dst="${pair#*:}"
+    if [ -f "$AT_TEMPLATES_DIR/$src" ]; then
+      at_render <"$AT_TEMPLATES_DIR/$src" >"$project/$dst"
+      at_ok "$dst"
+    fi
+  done
+
+  # --- emit roles: .claude/agents/*.md and .agent-teams/prompts/*.txt ---
+  {
+    printf 'version: 1\n'
+    printf 'project_name: %s\n' "$project_name"
+    printf 'default_runtime: %s\n' "$default_runtime"
+    printf 'general: %s\n' "$general_role"
+    printf 'roles:\n'
+  } >"$project/.agent-teams/team.yaml"
+
+  for r in $(printf '%s' "$roles_csv" | tr ',' ' '); do
+    local rf; rf="$(at_role_file "$r")"
+    local desc tools tier perm sandbox
+    desc="$(at_role_field "$rf" description)"
+    tools="$(at_role_field "$rf" tools)"
+    tier="$(at_role_field "$rf" model_tier)";       [ -n "$tier" ] || tier="regular"
+    perm="$(at_role_field "$rf" permission_mode)";  [ -n "$perm" ] || perm="acceptEdits"
+    sandbox="$(at_role_field "$rf" sandbox)";       [ -n "$sandbox" ] || sandbox="workspace-write"
+
+    # Claude subagent definition (Mode A teammates + Mode B roles).
+    # Note: no `skills:` key — it is ignored for teammates (see SPIKE-FINDINGS.md).
+    {
+      printf -- '---\n'
+      printf 'name: %s\n' "$r"
+      printf 'description: %s\n' "$desc"
+      [ -n "$tools" ] && printf 'tools: %s\n' "$tools"
+      printf -- '---\n\n'
+      at_role_body "$rf"
+    } >"$project/.claude/agents/$r.md"
+
+    # Plain-text prompt for --append-system-prompt-file / prompt-prefix runtimes.
+    at_role_body "$rf" >"$project/.agent-teams/prompts/$r.txt"
+
+    # Per-role runtime: --runtime-for wins, else the team default.
+    local role_runtime="$default_runtime" pair
+    for pair in $(printf '%s' "$runtime_map" | tr ',' ' '); do
+      [ "${pair%%=*}" = "$r" ] && role_runtime="${pair#*=}"
+    done
+
+    {
+      printf '  - name: %s\n' "$r"
+      printf '    runtime: %s\n' "$role_runtime"
+      printf '    model_tier: %s\n' "$tier"
+      printf '    permission_mode: %s\n' "$perm"
+      printf '    sandbox: %s\n' "$sandbox"
+      [ "$r" = "$general_role" ] && printf '    general: true\n'
+    } >>"$project/.agent-teams/team.yaml"
+  done
+  at_ok ".claude/agents/ ($(printf '%s' "$roles_csv" | tr ',' ' ' | wc -w | tr -d ' ') roles)"
+  at_ok ".agent-teams/team.yaml"
+
+  # --- permissions allowlist ---
+  # Verified: --permission-mode acceptEdits auto-accepts EDITS but still prompts on
+  # Bash, so a background role with Bash in its tools blocks on its first command.
+  # An explicit, auditable allowlist of read-only/common commands is the least-privilege
+  # fix; a blanket bypass would not be.
+  local settings="$project/.claude/settings.json"
+  if [ ! -f "$settings" ] || [ "$force" -eq 1 ]; then
+    cat >"$settings" <<'JSON'
+{
+  "_comment": "Written by agent-teams init. These permissions let background roles run without blocking on a prompt nobody can answer. Review and trim to taste; anything not listed still prompts, and a prompting background agent shows as 'blocked' in the monitor.",
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git worktree list:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(pwd)",
+      "Bash(echo:*)",
+      "Bash(mkdir:*)",
+      "Bash(date:*)",
+      "Bash(which:*)",
+      "Bash(file:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(diff:*)",
+      "Read",
+      "Grep",
+      "Glob",
+      "Write",
+      "Edit",
+      "TodoWrite"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(rm -rf:*)",
+      "Bash(sudo:*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/id_rsa)",
+      "Read(**/*.pem)"
+    ]
+  }
+}
+JSON
+    at_ok ".claude/settings.json (permission allowlist)"
+  else
+    at_warn ".claude/settings.json exists — left alone."
+    at_say "      Background roles block on any Bash command not in permissions.allow."
+  fi
+
+  # --- gitignore ---
+  local gi="$project/.gitignore"
+  for pat in ".agent-teams/logs/" ".agent-teams/sessions/"; do
+    if [ ! -f "$gi" ] || ! grep -qxF "$pat" "$gi" 2>/dev/null; then
+      printf '%s\n' "$pat" >>"$gi"
+    fi
+  done
+  at_ok ".gitignore updated"
+
+  at_say ""
+  at_say "${AT_BOLD}Next${AT_RESET}"
+  at_say "  1. Edit AGENTS.md — fill in the project map and commands."
+  at_say "  2. Review .agent-teams/team.yaml — set runtime per role."
+  at_say "  3. agent-teams doctor        # confirm runtimes and trust"
+  at_say "  4. agent-teams launch        # start the team"
+}
+
+# =====================================================================
+# doctor
+# =====================================================================
+cmd_doctor() {
+  local project="$PWD"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      -h|--help) at_say "agent-teams doctor [-C PATH]"; return 0 ;;
+      *) at_die "doctor: unknown option '$1'" ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"
+
+  at_say ""
+  at_say "${AT_BOLD}project${AT_RESET}  $project"
+  at_say ""
+
+  at_say "${AT_BOLD}runtimes${AT_RESET}"
+  local rt reason
+  for rt in claude-code codex pi; do
+    local sh="$AT_RUNTIMES_DIR/$rt.sh"
+    if [ ! -f "$sh" ]; then
+      printf '  %s%-12s%s no adapter\n' "$AT_DIM" "$rt" "$AT_RESET" >&2
+      continue
+    fi
+    if reason=$(bash "$sh" detect 2>&1); then
+      if [ -n "$reason" ]; then
+        printf '  %s✓%s %-12s %s%s%s\n' "$AT_GREEN" "$AT_RESET" "$rt" "$AT_YELLOW" "$reason" "$AT_RESET" >&2
+      else
+        printf '  %s✓%s %-12s ready\n' "$AT_GREEN" "$AT_RESET" "$rt" >&2
+      fi
+    else
+      printf '  %s✗%s %-12s %s%s%s\n' "$AT_RED" "$AT_RESET" "$rt" "$AT_DIM" "$reason" "$AT_RESET" >&2
+    fi
+  done
+
+  at_say ""
+  at_say "${AT_BOLD}tmux${AT_RESET}"
+  if at_have_tmux; then
+    printf '  %s✓%s %s  (--layout tmux available)\n' "$AT_GREEN" "$AT_RESET" "$(tmux -V)" >&2
+  else
+    printf '  %s—%s not installed  (--layout bg still works)\n' "$AT_DIM" "$AT_RESET" >&2
+  fi
+
+  at_say ""
+  at_say "${AT_BOLD}workspace trust${AT_RESET}"
+  if at_project_is_trusted "$project"; then
+    printf '  %s✓%s trusted — background agents can write here\n' "$AT_GREEN" "$AT_RESET" >&2
+  else
+    printf '  %s✗%s NOT trusted\n' "$AT_RED" "$AT_RESET" >&2
+    at_say "      Background agents will block forever on their first write."
+    at_say "      Fix: cd '$project' && claude   (accept the prompt, then exit)"
+  fi
+
+  at_say ""
+  at_say "${AT_BOLD}native agent teams${AT_RESET}"
+  if [ "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" = "1" ]; then
+    printf '  %s✓%s enabled in this shell\n' "$AT_GREEN" "$AT_RESET" >&2
+  else
+    printf '  %s—%s not enabled\n' "$AT_DIM" "$AT_RESET" >&2
+    at_say "      For Mode A: export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
+    at_say "      (experimental; interactive sessions only)"
+  fi
+
+  at_say ""
+  at_say "${AT_BOLD}scaffold${AT_RESET}"
+  local f
+  for f in AGENTS.md docs/coordination/README.md .agent-teams/team.yaml; do
+    if [ -e "$project/$f" ]; then
+      printf '  %s✓%s %s\n' "$AT_GREEN" "$AT_RESET" "$f" >&2
+    else
+      printf '  %s—%s %s  (run: agent-teams init)\n' "$AT_DIM" "$AT_RESET" "$f" >&2
+    fi
+  done
+
+  if [ -f "$(at_team_yaml "$project")" ]; then
+    at_say ""
+    at_say "${AT_BOLD}team${AT_RESET}"
+    at_team_roles "$(at_team_yaml "$project")" | while IFS=$'\t' read -r role runtime tier perm sandbox; do
+      printf '  %-18s %-12s %-8s %s%s%s\n' "$role" "$runtime" "$tier" "$AT_DIM" "${perm:-$sandbox}" "$AT_RESET" >&2
+    done
+  fi
+  at_say ""
+}
+
+# =====================================================================
+# launch
+# =====================================================================
+cmd_launch() {
+  local project="$PWD" mode="bg" layout="bg" only="" dry=0 task="" include_general=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --mode)   mode="$2"; shift 2 ;;
+      --layout) layout="$2"; shift 2 ;;
+      --only)   only="$2"; shift 2 ;;
+      --task)   task="$2"; shift 2 ;;
+      --include-general) include_general=1; shift ;;
+      --dry-run) dry=1; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams launch — start the team
+
+  --mode native   Print the spawn recipe for an interactive Claude session.
+                  Native teammates CANNOT be spawned headlessly, so this mode
+                  prepares and instructs; it does not fork processes.
+  --mode bg       Detached fleet: one worker per role. (default)
+
+  --layout bg     Headless background sessions + log files. (default)
+  --layout tmux   One interactive session per role in its own tmux window.
+                  Survives SSH disconnect; you can take a role over by hand.
+
+  --only a,b          Launch a subset of roles
+  --task "..."        Shared opening task for every role
+  --include-general   Also launch the general as a worker. By default it is
+                      skipped, because the general is the session YOU are in —
+                      it delegates to the others rather than being one of them.
+  --dry-run           Show what would start
+
+Cross-runtime teams are the normal case: whichever CLI you are sitting in acts
+as the general, and the workers can run under a different one. Assign at init:
+
+  agent-teams init --kind app-dev --general lead \\
+      --runtime claude-code --runtime-for research=codex --runtime-for qa=codex
+EOF
+        return 0 ;;
+      *) at_die "launch: unknown option '$1'" ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"
+
+  local ty; ty="$(at_team_yaml "$project")"
+  [ -f "$ty" ] || at_die "no .agent-teams/team.yaml in $project — run: agent-teams init"
+
+  if [ "$mode" = "native" ]; then
+    launch_native "$project" "$ty"
+    return $?
+  fi
+
+  case "$layout" in
+    bg) ;;
+    tmux) at_have_tmux || at_die "--layout tmux requires tmux, which is not installed.
+Use --layout bg, or install tmux (apt install tmux / brew install tmux)." ;;
+    *) at_die "--layout must be 'bg' or 'tmux'" ;;
+  esac
+
+  # Trust gate: verified failure mode, so we refuse rather than wedge silently.
+  if [ "$dry" -ne 1 ]; then
+    at_require_trust "$project" || return 1
+  fi
+
+  [ -n "$task" ] || task="Read AGENTS.md and docs/coordination/README.md, create your coordination note, then report your understanding of your role and what you plan to do first. Do not make code changes yet."
+
+  local tmux_sess=""
+  if [ "$layout" = "tmux" ]; then
+    tmux_sess="$(at_tmux_session "$project")"
+    if [ "$dry" -ne 1 ] && ! tmux has-session -t "$tmux_sess" 2>/dev/null; then
+      tmux new-session -d -s "$tmux_sess" -c "$project" -n "at-home" || at_die "cannot create tmux session"
+    fi
+  fi
+
+  mkdir -p "$(at_logs "$project")" "$(at_sessions "$project")"
+
+  local general; general="$(at_team_scalar "$ty" general)"
+
+  local started=0 failed=0 skipped_general=0
+  while IFS=$'\t' read -r role runtime tier perm sandbox; do
+    [ -n "$role" ] || continue
+    if [ -n "$only" ] && ! printf ',%s,' "$only" | grep -q ",$role,"; then continue; fi
+    # The general is the seat you occupy, not a worker to spawn.
+    if [ -n "$general" ] && [ "$role" = "$general" ] && [ "$include_general" -ne 1 ] && [ -z "$only" ]; then
+      skipped_general=1
+      continue
+    fi
+
+    local prompt_file="$project/.agent-teams/prompts/$role.txt"
+    local log="$(at_logs "$project")/$role.log"
+    local sh; sh="$(at_runtime_sh "$runtime")"
+    local target=""
+    [ "$layout" = "tmux" ] && target="$tmux_sess:$role"
+
+    # Claude takes permission_mode; codex/pi take sandbox.
+    local policy="$perm"
+    [ "$runtime" = "claude-code" ] || policy="$sandbox"
+
+    if [ "$dry" -eq 1 ]; then
+      at_say "  would launch ${AT_BOLD}$role${AT_RESET} via $runtime (${layout}, $tier, ${policy})"
+      started=$((started + 1))
+      continue
+    fi
+
+    if [ ! -f "$prompt_file" ]; then
+      at_warn "$role: missing $prompt_file — re-run init"
+      failed=$((failed + 1)); continue
+    fi
+
+    local sid
+    if sid=$(bash "$sh" launch "$role" "$prompt_file" "$task" "$log" "$project" "$layout" "$target" "$policy" "$tier" 2>>"$log"); then
+      cat >"$(at_sessions "$project")/$role.json" <<EOF
+{
+  "role": "$role",
+  "runtime": "$runtime",
+  "layout": "$layout",
+  "session_id": "$sid",
+  "full_session_id": "$sid",
+  "pid": null,
+  "tmux_target": $([ -n "$target" ] && printf '"%s"' "$target" || printf 'null'),
+  "log": ".agent-teams/logs/$role.log",
+  "cwd": "$project",
+  "started_at": "$(at_iso_now)"
+}
+EOF
+      at_ok "$role → $runtime ($sid)"
+      started=$((started + 1))
+    else
+      at_err "$role failed to start; see $log"
+      failed=$((failed + 1))
+    fi
+  done <<EOF
+$(at_team_roles "$ty")
+EOF
+
+  at_say ""
+  if [ "$dry" -eq 1 ]; then
+    at_info "dry run: $started role(s) would start"
+    return 0
+  fi
+
+  at_say "${AT_BOLD}$started worker(s) started${AT_RESET}${failed:+, $failed failed}"
+  if [ "$skipped_general" -eq 1 ]; then
+    at_say "  ${AT_DIM}general '$general' not spawned — that is this session. Use --include-general to spawn it too.${AT_RESET}"
+  fi
+  if [ "$layout" = "tmux" ]; then
+    at_say "  tmux attach -t $tmux_sess"
+  fi
+  at_say "  agent-teams monitor -C '$project'"
+  [ "$failed" -eq 0 ] || return 1
+}
+
+launch_native() {
+  local project="$1" ty="$2"
+  at_say ""
+  at_say "${AT_BOLD}Mode A — native in-session team${AT_RESET}"
+  at_say ""
+  at_say "Native teammates can only be spawned by Claude inside an ${AT_BOLD}interactive${AT_RESET}"
+  at_say "session. A -p/--print session never spawns them, so this command prepares"
+  at_say "the pieces and hands you the recipe rather than forking anything."
+  at_say ""
+  at_say "${AT_BOLD}1.${AT_RESET} Enable the feature and start an interactive session:"
+  at_say ""
+  at_say "     cd '$project'"
+  at_say "     CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --teammate-mode tmux"
+  at_say ""
+  at_say "   (drop --teammate-mode for the in-terminal agent panel instead of tmux panes)"
+  at_say ""
+  at_say "${AT_BOLD}2.${AT_RESET} Paste this prompt:"
+  at_say ""
+  at_say "${AT_CYAN}   Read AGENTS.md and docs/coordination/README.md first."
+  at_say "   Then spawn one teammate per role using these agent types:"
+  at_team_roles "$ty" | while IFS=$'\t' read -r role _rt _tier _p _s; do
+    [ -n "$role" ] && at_say "     - $role"
+  done
+  at_say ""
+  at_say "   Each teammate must create its coordination note before doing any work."
+  at_say "   Assign work through the note protocol, not by editing each other's files.${AT_RESET}"
+  at_say ""
+  at_say "${AT_BOLD}3.${AT_RESET} Watch them:"
+  at_say ""
+  at_say "     agent-teams monitor -C '$project'"
+  at_say ""
+  at_say "Expected observable: ~/.claude/teams/session-XXXXXXXX/ appears once teammates spawn."
+  at_say ""
+}
+
+# =====================================================================
+# status
+# =====================================================================
+cmd_status() {
+  local project="$PWD" as_json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --json) as_json=1; shift ;;
+      -h|--help) at_say "agent-teams status [-C PATH] [--json]"; return 0 ;;
+      *) at_die "status: unknown option '$1'" ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"
+
+  if [ ! -f "$AT_MONITOR_DIR/collectors.py" ]; then
+    at_die "monitor/collectors.py is missing from the skill"
+  fi
+
+  if [ "$as_json" -eq 1 ]; then
+    python3 "$AT_MONITOR_DIR/collectors.py" --project "$project" --json
+  else
+    python3 "$AT_MONITOR_DIR/collectors.py" --project "$project"
+  fi
+}
+
+# =====================================================================
+# monitor
+# =====================================================================
+cmd_monitor() {
+  local project="$PWD" port=8787 bind="127.0.0.1" refresh=2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --port)    port="$2"; shift 2 ;;
+      --bind)    bind="$2"; shift 2 ;;
+      --refresh) refresh="$2"; shift 2 ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams monitor — web dashboard over every role
+
+  --port N     default 8787
+  --bind ADDR  default 127.0.0.1 (loopback only — no auth exists)
+  --refresh N  poll seconds, default 2
+
+Reach it from a laptop over SSH:
+  ssh -L 8787:localhost:8787 user@server
+then open http://localhost:8787
+EOF
+        return 0 ;;
+      *) at_die "monitor: unknown option '$1'" ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"
+  [ -f "$AT_MONITOR_DIR/server.py" ] || at_die "monitor/server.py is missing from the skill"
+  exec python3 "$AT_MONITOR_DIR/server.py" --project "$project" --port "$port" --bind "$bind" --refresh "$refresh"
+}
+
+# =====================================================================
+# attach
+# =====================================================================
+cmd_attach() {
+  local project="$PWD" role=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      -h|--help) at_say "agent-teams attach [-C PATH] ROLE"; return 0 ;;
+      -*) at_die "attach: unknown option '$1'" ;;
+      *) role="$1"; shift ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"
+  [ -n "$role" ] || at_die "attach: which role? e.g. agent-teams attach engineering"
+
+  local sf="$(at_sessions "$project")/$role.json"
+  [ -f "$sf" ] || at_die "no live session for role '$role' (looked in $sf)"
+
+  local layout target sid
+  layout=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("layout") or "")' "$sf" 2>/dev/null)
+  target=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("tmux_target") or "")' "$sf" 2>/dev/null)
+  sid=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("session_id") or "")' "$sf" 2>/dev/null)
+
+  if [ "$layout" = "tmux" ] && [ -n "$target" ]; then
+    at_have_tmux || at_die "session was started under tmux, but tmux is not available now"
+    if [ -n "${TMUX:-}" ]; then
+      exec tmux select-window -t "$target"
+    fi
+    exec tmux attach -t "${target%%:*}" \; select-window -t "$target"
+  fi
+
+  case "$sid" in
+    pid:*) at_info "background process role; tailing its log (Ctrl-C to stop)" ;;
+    "")    at_info "no session id recorded; tailing log" ;;
+    *)     at_info "background Claude session '$sid'"
+           at_say "  interactive takeover:  claude attach $sid"
+           at_say "  tailing the log instead (Ctrl-C to stop)" ;;
+  esac
+  exec tail -f "$(at_logs "$project")/$role.log"
+}
+
+# =====================================================================
+# stop
+# =====================================================================
+cmd_stop() {
+  local project="$PWD" only="" kill_flag=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --only) only="$2"; shift 2 ;;
+      --kill) kill_flag="--kill"; shift ;;
+      -h|--help) at_say "agent-teams stop [-C PATH] [--only a,b] [--kill]"; return 0 ;;
+      *) at_die "stop: unknown option '$1'" ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"
+
+  local sd; sd="$(at_sessions "$project")"
+  [ -d "$sd" ] || { at_info "no sessions recorded"; return 0; }
+
+  local stopped=0 f
+  for f in "$sd"/*.json; do
+    [ -e "$f" ] || continue
+    local role; role="$(basename -- "$f" .json)"
+    if [ -n "$only" ] && ! printf ',%s,' "$only" | grep -q ",$role,"; then continue; fi
+
+    local runtime sid target
+    runtime=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("runtime") or "")' "$f" 2>/dev/null)
+    sid=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("session_id") or "")' "$f" 2>/dev/null)
+    target=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("tmux_target") or "")' "$f" 2>/dev/null)
+
+    [ -n "$runtime" ] && bash "$(at_runtime_sh "$runtime")" stop "$sid" $kill_flag 2>/dev/null || true
+    if [ -n "$target" ] && at_have_tmux; then
+      tmux kill-window -t "$target" 2>/dev/null || true
+    fi
+    rm -f "$f"
+    at_ok "stopped $role"
+    stopped=$((stopped + 1))
+  done
+
+  at_say ""
+  at_info "$stopped stopped — logs and coordination notes kept"
+}
+
+# =====================================================================
+main() {
+  local cmd="${1:-}"
+  [ $# -gt 0 ] && shift
+  case "$cmd" in
+    init)    cmd_init "$@" ;;
+    doctor)  cmd_doctor "$@" ;;
+    launch)  cmd_launch "$@" ;;
+    status)  cmd_status "$@" ;;
+    monitor) cmd_monitor "$@" ;;
+    attach)  cmd_attach "$@" ;;
+    stop)    cmd_stop "$@" ;;
+    -V|--version) echo "agent-teams $AT_VERSION" ;;
+    ""|-h|--help) usage ;;
+    *) at_err "unknown command '$cmd'"; usage; exit 2 ;;
+  esac
+}
+main "$@"
