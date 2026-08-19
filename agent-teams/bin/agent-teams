@@ -16,6 +16,8 @@ set -uo pipefail
 AT_BIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_common.sh
 . "$AT_BIN_DIR/_common.sh"
+# shellcheck source=_mailbox.sh
+. "$AT_BIN_DIR/_mailbox.sh"
 
 AT_VERSION="1.0.0"
 
@@ -31,11 +33,16 @@ ${AT_BOLD}COMMANDS${AT_RESET}
   doctor    Report runtimes, auth, tmux, and workspace trust
   skills    Manage the reference skill library roles consult for domain depth
   model     Show or change which model each role runs on
+  role      List roles, or create your own (incl. sub-roles via --extends)
+  team      Draw the team structure; add / remove / move roles
+  send      Message one role   ·  broadcast  Message every role
+  steer     Redirect a running role  ·  inbox  Read waiting messages
   launch    Start the team
   status    Print a snapshot of every role
   monitor   Serve the web dashboard
   attach    Enter one role's session
   stop      Stop sessions (logs and notes are kept)
+  close     Disband the team: review, then tear down + write a closeout report
 
 ${AT_BOLD}COMMON OPTIONS${AT_RESET}
   -C, --project-dir PATH   Target project (default: cwd)
@@ -110,7 +117,7 @@ EOF
     esac
   done
 
-  project="$(at_resolve_project "$project")"
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
   [ -n "$project_name" ] || project_name="$(basename -- "$project")"
 
   # Resolve roles
@@ -192,6 +199,8 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
            "$project/.claude/agents" \
            "$project/.agent-teams/prompts" \
            "$project/.agent-teams/logs" \
+           "$project/.agent-teams/inbox" \
+           "$project/.agent-teams/outbox" \
            "$project/.agent-teams/sessions" || at_die "cannot create directories under $project"
 
   # --- render the contract ---
@@ -250,13 +259,17 @@ available: $(ls "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md 2>/dev/null | x
       printf 'description: %s\n' "$desc"
       [ -n "$tools" ] && printf 'tools: %s\n' "$tools"
       printf -- '---\n\n'
-      at_role_body "$rf"
+      at_role_body_resolved "$rf"
+      at_result_block
+      at_mailbox_block "$r"
       [ "$ref_skills" -eq 1 ] && at_reference_block "$r"
     } >"$project/.claude/agents/$r.md"
 
     # Plain-text prompt for --append-system-prompt-file / prompt-prefix runtimes.
     {
-      at_role_body "$rf"
+      at_role_body_resolved "$rf"
+      at_result_block
+      at_mailbox_block "$r"
       [ "$ref_skills" -eq 1 ] && at_reference_block "$r"
     } >"$project/.agent-teams/prompts/$r.txt"
 
@@ -343,6 +356,13 @@ JSON
     at_say "      Background roles block on any Bash command not in permissions.allow."
   fi
 
+  # --- hooks (samples only; nothing executable until the user opts in) ---
+  if [ -d "$AT_TEMPLATES_DIR/hooks" ]; then
+    mkdir -p "$project/.agent-teams/hooks"
+    cp "$AT_TEMPLATES_DIR"/hooks/* "$project/.agent-teams/hooks/" 2>/dev/null
+    at_ok ".agent-teams/hooks/ (samples — see its README to enable)"
+  fi
+
   # --- gitignore ---
   local gi="$project/.gitignore"
   for pat in ".agent-teams/logs/" ".agent-teams/sessions/"; do
@@ -372,7 +392,7 @@ cmd_doctor() {
       *) at_die "doctor: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
 
   at_say ""
   at_say "${AT_BOLD}project${AT_RESET}  $project"
@@ -493,7 +513,7 @@ EOF
       *) at_die "launch: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
 
   local ty; ty="$(at_team_yaml "$project")"
   [ -f "$ty" ] || at_die "no .agent-teams/team.yaml in $project — run: agent-teams init"
@@ -643,6 +663,804 @@ launch_native() {
 }
 
 # =====================================================================
+# team — see the structure, and change it
+# =====================================================================
+cmd_team() {
+  local project="$PWD" action="show" role="" newrt="" newparent="" make_general=0
+  local parent_set=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      add)    action="add";    role="${2:-}"; shift 2 2>/dev/null || shift $# ;;
+      remove) action="remove"; role="${2:-}"; shift 2 2>/dev/null || shift $# ;;
+      move)   action="move";   role="${2:-}"; shift 2 2>/dev/null || shift $# ;;
+      show|tree) action="show"; shift ;;
+      --runtime) newrt="$2"; shift 2 ;;
+      --extends) newparent="$2"; parent_set=1; shift 2 ;;
+      --general) make_general=1; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams team — see the team's structure, and change it
+
+  agent-teams team                     draw the structure
+  agent-teams team add <role>          add a role to the team
+  agent-teams team remove <role>       take a role out
+  agent-teams team move <role> ...     restructure one role
+      --runtime claude-code|codex|pi   move it to another runtime
+      --extends <parent>               re-parent a sub-role (or "" to detach)
+      --general                        make it the general
+
+The tree nests sub-roles under the role they extend, so a specialisation reads as
+one. The general is marked, and each row shows runtime, model, and live state.
+
+Changes take effect at the next launch. Adding a role also needs its prompt file:
+re-run `init --force`, or write .agent-teams/prompts/<role>.txt by hand.
+EOF
+        return 0 ;;
+      -*) at_die "team: unknown option '$1'" ;;
+      *) role="$1"; shift ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  local ty; ty="$(at_team_yaml "$project")"
+  [ -f "$ty" ] || at_die "no team here — run: agent-teams init"
+
+  case "$action" in
+    show)
+      local general; general="$(at_team_scalar "$ty" general)"
+      local statef; statef="$(at_dot "$project")/.tree-state.json"
+      python3 "$AT_MONITOR_DIR/collectors.py" --project "$project" --json >"$statef" 2>/dev/null
+
+      # Build "role<TAB>runtime<TAB>tier<TAB>pin<TAB>parent" for the renderer.
+      local rowsf; rowsf="$(at_dot "$project")/.tree-rows.tsv"
+      : >"$rowsf"
+      at_team_roles "$ty" | while IFS=$'\t' read -r r rt tier perm sandbox pin; do
+        [ -n "$r" ] || continue
+        local rf parent="" model
+        rf="$(at_role_file "$r" 2>/dev/null)" && parent="$(at_role_field "$rf" extends)"
+        model="$(at_resolve_model "$r" "$tier" "$pin" "$rt" "" "")"
+        printf '%s\t%s\t%s\t%s\t%s\n' "$r" "$rt" "$tier" "${model:-default}" "$parent" >>"$rowsf"
+      done
+
+      python3 - "$rowsf" "$statef" "$general" "$(at_team_scalar "$ty" project_name)" <<'PY'
+import json, sys
+
+rows_path, state_path, general, team = sys.argv[1:5]
+rows = []
+for line in open(rows_path, errors="replace"):
+    parts = line.rstrip("\n").split("\t")
+    if len(parts) >= 5 and parts[0]:
+        rows.append(dict(zip(["role", "runtime", "tier", "model", "parent"], parts)))
+
+try:
+    state = json.load(open(state_path))
+except Exception:
+    state = {"roles": []}
+st = {}
+for r in state.get("roles") or []:
+    st[r.get("role")] = r
+
+names = set(r["role"] for r in rows)
+children = {}
+roots = []
+for r in rows:
+    p = r["parent"]
+    if p and p in names:
+        children.setdefault(p, []).append(r)
+    else:
+        roots.append(r)
+
+# The general anchors the tree; everything else hangs off it visually.
+roots.sort(key=lambda r: (r["role"] != general, r["role"]))
+
+GLYPH = {"blocked": "!", "errored": "x", "working": ">", "idle": "-",
+         "stopped": ".", "unknown": "?"}
+
+
+def render(r, prefix, last, depth):
+    s = st.get(r["role"]) or {}
+    state = s.get("state") or "unknown"
+    tok = s.get("tokens_total") or 0
+    branch = "" if depth == 0 else ("`- " if last else "|- ")
+    name = prefix + branch + r["role"]
+    role_tag = "general" if r["role"] == general else ("sub" if r["parent"] else "")
+    extra = ("%9s tok" % format(tok, ",")) if tok else ""
+    print("  %s %-26s %-8s %-12s %-9s%s" % (
+        GLYPH.get(state, "?"), name, role_tag, r["runtime"], r["model"], extra))
+    kids = sorted(children.get(r["role"]) or [], key=lambda k: k["role"])
+    newpref = prefix + ("" if depth == 0 else ("   " if last else "|  "))
+    for i, k in enumerate(kids):
+        render(k, newpref, i == len(kids) - 1, depth + 1)
+
+
+print()
+print("  %s" % (team or "team"))
+print("  %s %-26s %-8s %-12s %-9s" % ("", "ROLE", "", "RUNTIME", "MODEL"))
+print("  " + "-" * 68)
+for i, r in enumerate(roots):
+    render(r, "", i == len(roots) - 1, 0)
+print()
+print("  ! blocked   x errored   > working   - idle   . stopped   ? not started")
+print()
+PY
+      rm -f "$statef" "$rowsf" 2>/dev/null
+      ;;
+
+    add)
+      [ -n "$role" ] || at_die "usage: agent-teams team add <role>"
+      at_role_file "$role" >/dev/null 2>&1 \
+        || at_die "no such role '$role' — see: agent-teams role list"
+      at_team_roles "$ty" | grep -q "^$role	" && at_die "$role is already in this team"
+      local rf; rf="$(at_role_file "$role")"
+      {
+        printf '  - name: %s\n' "$role"
+        printf '    runtime: %s\n' "${newrt:-$(at_team_scalar "$ty" default_runtime)}"
+        printf '    model_tier: %s\n' "$(at_role_field "$rf" model_tier)"
+        printf '    permission_mode: %s\n' "$(at_role_field "$rf" permission_mode)"
+        printf '    sandbox: %s\n' "$(at_role_field "$rf" sandbox)"
+      } >>"$ty"
+      at_ok "added $role"
+      [ -f "$project/.agent-teams/prompts/$role.txt" ] \
+        || at_warn "no prompt file yet — run: agent-teams init --force"
+      ;;
+
+    remove)
+      [ -n "$role" ] || at_die "usage: agent-teams team remove <role>"
+      at_team_roles "$ty" | grep -q "^$role	" || at_die "$role is not in this team"
+      [ "$role" = "$(at_team_scalar "$ty" general)" ] \
+        && at_die "$role is the general — move the general first"
+      python3 - "$ty" "$role" <<'PY' || at_die "could not update team.yaml"
+import sys
+path, role = sys.argv[1:3]
+lines = open(path).read().split("\n")
+out, skipping = [], False
+for ln in lines:
+    t = ln.strip()
+    if t.startswith("- name:"):
+        skipping = t.split(":", 1)[1].strip().strip("\"'") == role
+        if skipping:
+            continue
+    elif skipping and ln.startswith(" "):
+        continue
+    elif skipping:
+        skipping = False
+    out.append(ln)
+open(path, "w").write("\n".join(out))
+PY
+      at_ok "removed $role from the team"
+      at_info "its role file, logs, and notes are untouched"
+      ;;
+
+    move)
+      [ -n "$role" ] || at_die "usage: agent-teams team move <role> [--runtime R] [--extends P] [--general]"
+      at_team_roles "$ty" | grep -q "^$role	" || at_die "$role is not in this team"
+
+      if [ -n "$newrt" ]; then
+        case "$newrt" in claude-code|codex|pi) ;; *) at_die "--runtime must be claude-code, codex, or pi" ;; esac
+        python3 - "$ty" "$role" runtime "$newrt" <<'PY' || at_die "could not update team.yaml"
+import sys
+path, role, key, val = sys.argv[1:5]
+lines = open(path).read().split("\n")
+out, cur = [], False
+for ln in lines:
+    t = ln.strip()
+    if t.startswith("- name:"):
+        cur = t.split(":", 1)[1].strip().strip("\"'") == role
+    elif cur and t.startswith(key + ":"):
+        out.append("    %s: %s" % (key, val)); continue
+    out.append(ln)
+open(path, "w").write("\n".join(out))
+PY
+        at_ok "$role → runtime $newrt"
+      fi
+
+      if [ "$parent_set" -eq 1 ]; then
+        local rf; rf="$(at_role_file "$role")" || at_die "cannot find $role's file"
+        case "$rf" in
+          "$project"/*) ;;
+          *) at_die "$role is a built-in; copy it first:
+    agent-teams role new $role --extends $role   (then edit)" ;;
+        esac
+        if [ -n "$newparent" ]; then
+          at_role_file "$newparent" >/dev/null 2>&1 || at_die "no such parent role: $newparent"
+          [ "$newparent" = "$role" ] && at_die "a role cannot extend itself"
+        fi
+        python3 - "$rf" "$newparent" <<'PY' || at_die "could not update the role file"
+import sys
+path, parent = sys.argv[1:3]
+lines = open(path).read().split("\n")
+out, infm, done = [], False, False
+for i, ln in enumerate(lines):
+    if ln.strip() == "---":
+        if not infm:
+            infm = True; out.append(ln); continue
+        if parent and not done:
+            out.append("extends: %s" % parent); done = True
+        infm = False; out.append(ln); continue
+    if infm and ln.startswith("extends:"):
+        if parent:
+            out.append("extends: %s" % parent); done = True
+        continue          # dropping it detaches the sub-role
+    out.append(ln)
+open(path, "w").write("\n".join(out))
+PY
+        if [ -n "$newparent" ]; then at_ok "$role now extends $newparent"
+        else at_ok "$role detached — no longer a sub-role"; fi
+        at_warn "re-run 'agent-teams init --force' so its prompt is rebuilt"
+      fi
+
+      if [ "$make_general" -eq 1 ]; then
+        python3 - "$ty" "$role" <<'PY' || at_die "could not update team.yaml"
+import sys
+path, role = sys.argv[1:3]
+lines = open(path).read().split("\n")
+out, cur = [], False
+for ln in lines:
+    t = ln.strip()
+    if ln.startswith("general:"):
+        out.append("general: %s" % role); continue
+    if t.startswith("- name:"):
+        cur = t.split(":", 1)[1].strip().strip("\"'") == role
+    if t == "general: true" and not cur:
+        continue
+    out.append(ln)
+open(path, "w").write("\n".join(out))
+PY
+        at_ok "$role is now the general"
+        at_info "launch will skip it — it is the seat you occupy"
+      fi
+      ;;
+  esac
+}
+
+# =====================================================================
+# close — disband the team, with a review before anything is torn down
+# =====================================================================
+cmd_close() {
+  local project="$PWD" force=0 dry=0 keep_wt=0 reason=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --force) force=1; shift ;;
+      --dry-run) dry=1; shift ;;
+      --keep-worktrees) keep_wt=1; shift ;;
+      --reason) reason="$2"; shift 2 ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams close — disband the team and write a closeout report
+
+Reviews before it tears anything down, and refuses if work would be lost:
+
+  · a role still working              -> refuses unless --force
+  · a coordination note not finished  -> lists it (active / blocked / handoff)
+  · commits sitting in a worktree     -> lists it; they are NOT on your branch
+  · unread messages                   -> lists them
+
+Then stops every role, removes the tmux session, and writes
+docs/coordination/_closeout-<timestamp>.md with what each role did, its final
+state, its token spend, and anything left unresolved.
+
+  --dry-run          run the review only, change nothing
+  --force            close even with roles running or notes unfinished
+  --keep-worktrees   do not remove agent worktrees (default: keep them anyway;
+                     removal is never automatic because commits live there)
+  --reason "..."     recorded in the report
+
+Logs, coordination notes, and worktrees are always preserved.
+EOF
+        return 0 ;;
+      *) at_die "close: unknown option '$1'" ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  local ty; ty="$(at_team_yaml "$project")"
+  [ -f "$ty" ] || at_die "no team here — nothing to close"
+
+  at_say ""
+  at_say "${AT_BOLD}Closing team${AT_RESET}  $(at_team_scalar "$ty" project_name)"
+  at_say ""
+
+  # ---- review ----
+  local state_json blockers=0
+  state_json="$(python3 "$AT_MONITOR_DIR/collectors.py" --project "$project" --json 2>/dev/null)"
+
+  at_say "${AT_BOLD}roles${AT_RESET}"
+  local busy
+  local statef; statef="$(at_dot "$project")/.closeout-state.json"
+  printf '%s' "$state_json" >"$statef" 2>/dev/null
+
+  # One pass: human table to stderr, machine list of still-active roles to stdout.
+  local busyf; busyf="$(at_dot "$project")/.closeout-busy.txt"
+  # NB: bash 3.2 (stock macOS) mis-parses a heredoc inside $( ), so the heredoc
+  # runs on its own and the result is read back from a file.
+  python3 - "$statef" >"$busyf" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    d = {"roles": []}
+busy = []
+for r in d.get("roles") or []:
+    st = r.get("state") or "unknown"
+    mark = {"working": "running", "blocked": "BLOCKED", "errored": "ERRORED"}.get(st, st)
+    tok = r.get("tokens_total") or 0
+    extra = ("  %s tok" % format(tok, ",")) if tok else ""
+    sys.stderr.write("  %-18s %-9s%s\n" % (r.get("role") or "?", mark, extra))
+    if st in ("working", "blocked"):
+        busy.append(r.get("role") or "")
+print(",".join(x for x in busy if x))
+PY
+  busy="$(cat "$busyf" 2>/dev/null)"
+  rm -f "$busyf" 2>/dev/null
+  rm -f "$statef" 2>/dev/null
+
+  if [ -n "$busy" ]; then
+    at_say ""
+    at_warn "still active: $busy"
+    blockers=$((blockers + 1))
+  fi
+
+  # unfinished coordination notes
+  local unfinished=""
+  if [ -d "$project/docs/coordination" ]; then
+    local unff; unff="$(at_dot "$project")/.closeout-notes.txt"
+    python3 - "$project/docs/coordination" >"$unff" <<'PY'
+import glob, os, sys
+out = []
+for f in sorted(glob.glob(os.path.join(sys.argv[1], "*.md"))):
+    base = os.path.basename(f)
+    if base.startswith("_") or base == "README.md":
+        continue
+    status = ""
+    try:
+        with open(f, errors="replace") as fh:
+            infm = False
+            for line in fh:
+                t = line.strip()
+                if t == "---":
+                    if infm:
+                        break
+                    infm = True
+                    continue
+                if infm and t.startswith("status:"):
+                    status = t.split(":", 1)[1].strip().strip("\"'")
+                    break
+    except Exception:
+        continue
+    if status and status != "complete":
+        out.append("%s (%s)" % (base, status))
+print("\n".join(out))
+PY
+    unfinished="$(cat "$unff" 2>/dev/null)"
+    rm -f "$unff" 2>/dev/null
+  fi
+  if [ -n "$unfinished" ]; then
+    at_say ""
+    at_say "${AT_BOLD}unfinished notes${AT_RESET}"
+    printf '%s\n' "$unfinished" | sed 's/^/  /' >&2
+    blockers=$((blockers + 1))
+  fi
+
+  # worktrees holding commits — the surprise found in testing
+  local worktrees=""
+  if [ -d "$project/.claude/worktrees" ]; then
+    worktrees="$(ls -1 "$project/.claude/worktrees" 2>/dev/null)"
+  fi
+  if [ -n "$worktrees" ]; then
+    at_say ""
+    at_say "${AT_BOLD}agent worktrees${AT_RESET} ${AT_DIM}(commits here are NOT on your branch)${AT_RESET}"
+    printf '%s\n' "$worktrees" | sed 's/^/  /' >&2
+    blockers=$((blockers + 1))
+  fi
+
+  # unread messages
+  local unread=""
+  at_team_roles "$ty" | while IFS=$'\t' read -r r _a _b _c _d _e; do
+    [ -n "$r" ] || continue
+    local n; n="$(at_mb_unread_count "$project" "$r")"
+    [ "$n" -gt 0 ] && printf '  %-18s %s unread\n' "$r" "$n" >&2
+  done
+  unread="$(at_team_roles "$ty" | while IFS=$'\t' read -r r _a _b _c _d _e; do
+    [ -n "$r" ] && [ "$(at_mb_unread_count "$project" "$r")" -gt 0 ] && printf 'x'
+  done)"
+  [ -n "$unread" ] && { at_say ""; at_warn "some messages were never read"; }
+
+  at_say ""
+  if [ "$dry" -eq 1 ]; then
+    at_info "dry run — nothing closed"
+    return 0
+  fi
+  if [ "$blockers" -gt 0 ] && [ "$force" -ne 1 ]; then
+    at_err "not closing: $blockers item(s) above need attention"
+    at_say "  Resolve them, or re-run with --force to close anyway."
+    at_say "  Nothing was stopped."
+    return 1
+  fi
+
+  # ---- write the report BEFORE tearing down, so state is still readable ----
+  local ts report
+  ts="$(date -u +%Y%m%d-%H%M%S)"
+  report="$project/docs/coordination/_closeout-$ts.md"
+  mkdir -p "$project/docs/coordination"
+  local statef2; statef2="$(at_dot "$project")/.closeout-report.json"
+  printf '%s' "$state_json" >"$statef2" 2>/dev/null
+  {
+    printf -- '---\n'
+    printf 'kind: closeout\n'
+    printf 'closed_at: %s\n' "$(at_iso_now)"
+    printf 'team: %s\n' "$(at_team_scalar "$ty" project_name)"
+    printf -- '---\n\n'
+    printf '# Team closeout — %s\n\n' "$ts"
+    [ -n "$reason" ] && printf 'Reason: %s\n\n' "$reason"
+    printf '## Roles at close\n\n'
+    python3 - "$statef2" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    d = {"roles": []}
+rows = d.get("roles") or []
+print("| role | runtime | state | tokens | outcome |")
+print("|---|---|---|---|---|")
+for r in rows:
+    tok = r.get("tokens_total") or 0
+    last = (r.get("result_block") or r.get("last_text") or "")
+    last = " ".join(last.split())[:80]
+    print("| %s | %s | %s | %s | %s |" % (
+        r.get("role") or "?", r.get("runtime") or "-",
+        r.get("state") or "unknown",
+        format(tok, ",") if tok else "-", last))
+tot = sum((r.get("tokens_total") or 0) for r in rows)
+print()
+print("Total tokens across roles: %s" % format(tot, ","))
+PY
+    printf '\n## Unfinished coordination notes\n\n'
+    if [ -n "$unfinished" ]; then printf '%s\n' "$unfinished" | sed 's/^/- /'; else printf 'none\n'; fi
+    printf '\n## Agent worktrees\n\n'
+    if [ -n "$worktrees" ]; then
+      printf 'Commits in these are on side branches and are **not** in the main tree:\n\n'
+      printf '%s\n' "$worktrees" | sed 's/^/- .claude\/worktrees\//'
+      printf '\nReview with `git worktree list`, then merge or discard deliberately.\n'
+    else
+      printf 'none\n'
+    fi
+    printf '\n## Next\n\n'
+    printf -- '- Logs kept at `.agent-teams/logs/`\n'
+    printf -- '- Coordination notes kept at `docs/coordination/`\n'
+    printf -- '- Re-open the team at any time with `agent-teams launch`\n'
+  } >"$report"
+
+  # ---- tear down ----
+  cmd_stop -C "$project" 2>&1 | sed 's/^/  /' >&2
+  if at_have_tmux; then
+    local sess; sess="$(at_tmux_session "$project")"
+    tmux kill-session -t "$sess" 2>/dev/null && at_ok "tmux session $sess removed"
+  fi
+
+  at_say ""
+  rm -f "$statef2" 2>/dev/null
+  at_ok "team closed"
+  at_say "  report: ${report#$project/}"
+  [ -n "$worktrees" ] && at_warn "worktrees kept — commits inside are not on your branch"
+  at_say ""
+}
+
+# =====================================================================
+# role — list, create, and specialise roles
+# =====================================================================
+cmd_role() {
+  local project="$PWD" action="list" name="" parent="" add=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      new)     action="new"; name="${2:-}"; shift 2 2>/dev/null || shift $# ;;
+      list)    action="list"; shift ;;
+      show)    action="show"; name="${2:-}"; shift 2 2>/dev/null || shift $# ;;
+      --extends) parent="$2"; shift 2 ;;
+      --add)   add=1; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams role — list, create, and specialise roles
+
+  agent-teams role list                       every role available here
+  agent-teams role show <name>                where it comes from, and its body
+  agent-teams role new <name> [--extends P]   create a project-local role
+                                              --add also puts it in team.yaml
+
+Roles resolve in this order, first match wins:
+
+  1. <project>/.agent-teams/roles/<name>.md   your own, per project
+  2. <skill>/roles/<name>.md                  built-in core
+  3. <skill>/roles/extras/<name>.md           built-in opt-in
+
+So a project-local role of the same name overrides a built-in one, and you can add
+roles without touching the skill.
+
+Sub-roles: `--extends engineering` creates a role whose prompt is the parent's body
+followed by your own. Use it to specialise — a frontend or data-pipeline engineer
+that inherits the shared engineering discipline instead of restating it.
+
+  agent-teams role new frontend --extends engineering --add
+EOF
+        return 0 ;;
+      -*) at_die "role: unknown option '$1'" ;;
+      *) name="$1"; shift ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+
+  case "$action" in
+    list)
+      at_say ""
+      printf '  %-22s %-10s %s\n' "ROLE" "SOURCE" "EXTENDS" >&2
+      at_say "  ---------------------------------------------------------"
+      local seen="" f n
+      for f in "$project"/.agent-teams/roles/*.md "$AT_ROLES_DIR"/*.md "$AT_ROLES_DIR"/extras/*.md; do
+        [ -e "$f" ] || continue
+        n="$(basename -- "$f" .md)"
+        [ "$n" = "README" ] && continue
+        printf ',%s,' "$seen" | grep -q ",$n," && continue
+        seen="$seen,$n"
+        printf '  %-22s %-10s %s\n' "$n" "$(at_role_origin "$n")" \
+          "$(at_role_field "$(at_role_file "$n")" extends)" >&2
+      done
+      at_say ""
+      at_info "project roles live in .agent-teams/roles/ and override built-ins"
+      at_say ""
+      ;;
+    show)
+      [ -n "$name" ] || at_die "usage: agent-teams role show <name>"
+      local f; f="$(at_role_file "$name")" || at_die "no such role: $name"
+      at_info "$name — $(at_role_origin "$name") — $f"
+      at_role_body_resolved "$f"
+      ;;
+    new)
+      [ -n "$name" ] || at_die "usage: agent-teams role new <name> [--extends <parent>]"
+      case "$name" in *[!a-z0-9-]*) at_die "role names: lowercase letters, digits, hyphens" ;; esac
+      local dir="$project/.agent-teams/roles" dst
+      dst="$dir/$name.md"
+      [ -e "$dst" ] && at_die "$dst already exists"
+      mkdir -p "$dir" || at_die "cannot create $dir"
+
+      local ptools ptier pperm psandbox pdesc=""
+      if [ -n "$parent" ]; then
+        local pf; pf="$(at_role_file "$parent")" \
+          || at_die "--extends '$parent': no such role (try: agent-teams role list)"
+        ptools="$(at_role_field "$pf" tools)"
+        ptier="$(at_role_field "$pf" model_tier)"
+        pperm="$(at_role_field "$pf" permission_mode)"
+        psandbox="$(at_role_field "$pf" sandbox)"
+        pdesc=" Specialises the $parent role."
+      fi
+      : "${ptools:=Read, Write, Edit, Bash, Grep, Glob}"
+      : "${ptier:=regular}"
+      : "${pperm:=acceptEdits}"
+      : "${psandbox:=workspace-write}"
+
+      {
+        printf -- '---\n'
+        printf 'name: %s\n' "$name"
+        printf 'description: TODO one line — what this role owns and when to use it.%s\n' "$pdesc"
+        printf 'when_to_use: TODO the situation that should route work here.\n'
+        printf 'tools: %s\n' "$ptools"
+        printf 'model_tier: %s\n' "$ptier"
+        printf 'permission_mode: %s\n' "$pperm"
+        printf 'sandbox: %s\n' "$psandbox"
+        [ -n "$parent" ] && printf 'extends: %s\n' "$parent"
+        printf -- '---\n\n'
+        if [ -n "$parent" ]; then
+          cat <<EOF
+You are the ${name} role, a specialisation of ${parent}. Everything above still
+applies; the following narrows it.
+
+## What is different here
+
+TODO — the scope, systems, or files this role owns that the parent does not.
+
+## Do not
+
+TODO — what belongs to another role, so work does not collide.
+
+## Definition of done
+
+TODO — what must be true, and what evidence proves it.
+EOF
+        else
+          cat <<EOF
+You are the ${name} role on an agent team.
+
+## You own
+
+TODO — the responsibility, stated so another role can tell what is yours.
+
+## Do not
+
+TODO — the boundaries. Name the roles that own what you must not touch.
+
+## How you coordinate
+
+Record your work in a coordination note at \`docs/coordination/<session-id>.md\`.
+Hand off rather than overwriting another session's work.
+
+## Definition of done
+
+TODO — what must be true, and what evidence proves it.
+EOF
+        fi
+      } >"$dst"
+
+      at_ok "created $dst${parent:+  (extends $parent)}"
+      at_say "  1. Fill in the TODOs — the body is appended to the agent's system prompt."
+      at_say "  2. Add it to the team:"
+      at_say "       agent-teams role new … --add     (or edit .agent-teams/team.yaml)"
+
+      if [ "$add" -eq 1 ]; then
+        local ty; ty="$(at_team_yaml "$project")"
+        [ -f "$ty" ] || at_die "no team.yaml yet — run agent-teams init first"
+        if at_team_roles "$ty" | grep -q "^$name	"; then
+          at_warn "$name is already in team.yaml"
+        else
+          {
+            printf '  - name: %s\n' "$name"
+            printf '    runtime: %s\n' "$(at_team_scalar "$ty" default_runtime)"
+            printf '    model_tier: %s\n' "$ptier"
+            printf '    permission_mode: %s\n' "$pperm"
+            printf '    sandbox: %s\n' "$psandbox"
+          } >>"$ty"
+          at_ok "added $name to team.yaml"
+          at_say "  Re-run init --force, or hand-write .agent-teams/prompts/$name.txt,"
+          at_say "  so the role's prompt file exists before you launch it."
+        fi
+      fi
+      ;;
+  esac
+}
+
+# =====================================================================
+# send / broadcast / steer / inbox — inter-role messaging
+# =====================================================================
+cmd_send() {
+  local project="$PWD" from="${AGENT_TEAMS_ROLE:-human}" urgent=0 to="" text="" bcast=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --from)   from="$2"; shift 2 ;;
+      --urgent) urgent=1; shift ;;
+      --all)    bcast=1; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams send <role> "<message>"     deliver a message to one role
+agent-teams broadcast "<message>"       deliver to every role
+
+  --from ROLE   sender (default: $AGENT_TEAMS_ROLE, else "human")
+  --urgent      flag it; the monitor shows urgent unread loudly
+
+Messages land in .agent-teams/inbox/<role>.json. Delivery is at the recipient's
+next poll — a background agent cannot be interrupted mid-turn. To reach a live
+tmux-layout role immediately, use `steer` instead.
+EOF
+        return 0 ;;
+      -*) at_die "send: unknown option '$1'" ;;
+      *) if [ "$bcast" -eq 1 ]; then text="$1"; else
+           if [ -z "$to" ]; then to="$1"; else text="$1"; fi
+         fi; shift ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  local ty; ty="$(at_team_yaml "$project")"
+  [ -f "$ty" ] || at_die "no team here — run: agent-teams init"
+  [ -n "$text" ] || at_die "nothing to send"
+
+  if [ "$bcast" -eq 1 ]; then
+    local n=0
+    at_team_roles "$ty" | while IFS=$'\t' read -r r _a _b _c _d _e; do
+      [ -n "$r" ] || continue
+      [ "$r" = "$from" ] && continue
+      at_mb_append "$project" "$r" "$from" message "$urgent" "$text" >/dev/null && at_ok "→ $r"
+    done
+    return 0
+  fi
+
+  [ -n "$to" ] || at_die "usage: agent-teams send <role> \"<message>\""
+  at_team_roles "$ty" | grep -q "^$to	" || at_die "role '$to' is not in this team"
+  local id; id="$(at_mb_append "$project" "$to" "$from" message "$urgent" "$text")" \
+    || at_die "could not write inbox"
+  at_ok "sent to $to ($id)"
+  at_info "delivered at ${to}'s next inbox check"
+}
+
+cmd_steer() {
+  local project="$PWD" from="${AGENT_TEAMS_ROLE:-human}" role="" text="" queue=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --from)  from="$2"; shift 2 ;;
+      --queue) queue=1; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams steer <role> "<message>"  redirect a role that is already running
+
+Under --layout tmux the message is typed straight into the role's pane, so it
+lands immediately. Otherwise (and with --queue) it goes to the inbox and is
+picked up at the role's next check.
+
+  --queue   never type into the pane; always queue it
+EOF
+        return 0 ;;
+      -*) at_die "steer: unknown option '$1'" ;;
+      *) if [ -z "$role" ]; then role="$1"; else text="$1"; fi; shift ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+  [ -n "$role" ] && [ -n "$text" ] || at_die "usage: agent-teams steer <role> \"<message>\""
+
+  # Always record it, so there is an audit trail even when typed live.
+  at_mb_append "$project" "$role" "$from" steer 1 "$text" >/dev/null || true
+
+  local sf="$(at_sessions "$project")/$role.json" target=""
+  [ -f "$sf" ] && target=$(python3 -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get("tmux_target") or "")
+except Exception: print("")' "$sf" 2>/dev/null)
+
+  if [ "$queue" -eq 0 ] && [ -n "$target" ] && at_have_tmux; then
+    if tmux send-keys -t "$target" "$text" Enter 2>/dev/null; then
+      at_ok "steered $role live (tmux $target)"
+      return 0
+    fi
+    at_warn "could not type into $target — queued instead"
+  fi
+  at_ok "queued for $role"
+  at_info "picked up at its next inbox check"
+}
+
+cmd_inbox() {
+  local project="$PWD" role="" all="" fmt="" mark=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) project="$2"; shift 2 ;;
+      --all)  all="--all"; shift ;;
+      --json) fmt="--json"; shift ;;
+      --mark-read) mark=1; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams inbox [<role>]   show waiting messages
+
+  --all          include already-read messages
+  --json         machine-readable
+  --mark-read    mark everything read after showing (roles do this)
+
+With no role, shows the unread count for every role.
+EOF
+        return 0 ;;
+      -*) at_die "inbox: unknown option '$1'" ;;
+      *) role="$1"; shift ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
+
+  if [ -z "$role" ]; then
+    local ty; ty="$(at_team_yaml "$project")"
+    [ -f "$ty" ] || at_die "no team here"
+    at_say ""
+    at_team_roles "$ty" | while IFS=$'\t' read -r r _a _b _c _d _e; do
+      [ -n "$r" ] || continue
+      local n; n="$(at_mb_unread_count "$project" "$r")"
+      if [ "$n" -gt 0 ]; then
+        printf '  %s%-18s %s unread%s\n' "$AT_YELLOW" "$r" "$n" "$AT_RESET" >&2
+      else
+        printf '  %-18s %s—%s\n' "$r" "$AT_DIM" "$AT_RESET" >&2
+      fi
+    done
+    at_say ""
+    return 0
+  fi
+
+  at_mb_read "$project" "$role" "$all" "$fmt"
+  [ "$mark" -eq 1 ] && at_mb_mark_read "$project" "$role" >/dev/null
+  return 0
+}
+
+# =====================================================================
 # model — inspect and change which model each role runs on
 # =====================================================================
 cmd_model() {
@@ -686,7 +1504,7 @@ EOF
       *) at_die "model: unknown argument '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
   local ty; ty="$(at_team_yaml "$project")"
   [ -f "$ty" ] || at_die "no .agent-teams/team.yaml in $project — run: agent-teams init"
 
@@ -813,7 +1631,7 @@ EOF
       *) at_die "skills: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
   local dest="$project/.agent-teams/reference-skills"
 
   case "$action" in
@@ -884,7 +1702,7 @@ cmd_status() {
       *) at_die "status: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
 
   if [ ! -f "$AT_MONITOR_DIR/collectors.py" ]; then
     at_die "monitor/collectors.py is missing from the skill"
@@ -924,7 +1742,7 @@ EOF
       *) at_die "monitor: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
   [ -f "$AT_MONITOR_DIR/server.py" ] || at_die "monitor/server.py is missing from the skill"
   exec python3 "$AT_MONITOR_DIR/server.py" --project "$project" --port "$port" --bind "$bind" --refresh "$refresh"
 }
@@ -942,7 +1760,7 @@ cmd_attach() {
       *) role="$1"; shift ;;
     esac
   done
-  project="$(at_resolve_project "$project")"
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
   [ -n "$role" ] || at_die "attach: which role? e.g. agent-teams attach engineering"
 
   local sf="$(at_sessions "$project")/$role.json"
@@ -985,7 +1803,7 @@ cmd_stop() {
       *) at_die "stop: unknown option '$1'" ;;
     esac
   done
-  project="$(at_resolve_project "$project")"
+  project="$(at_resolve_project "$project")"; AT_PROJECT="$project"
 
   local sd; sd="$(at_sessions "$project")"
   [ -d "$sd" ] || { at_info "no sessions recorded"; return 0; }
@@ -1023,6 +1841,13 @@ main() {
     doctor)  cmd_doctor "$@" ;;
     skills)  cmd_skills "$@" ;;
     model)   cmd_model "$@" ;;
+    role)      cmd_role "$@" ;;
+    team)      cmd_team "$@" ;;
+    close)     cmd_close "$@" ;;
+    send)      cmd_send "$@" ;;
+    broadcast) cmd_send --all "$@" ;;
+    steer)     cmd_steer "$@" ;;
+    inbox)     cmd_inbox "$@" ;;
     launch)  cmd_launch "$@" ;;
     status)  cmd_status "$@" ;;
     monitor) cmd_monitor "$@" ;;

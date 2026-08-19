@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Fires when a role is alive but has produced nothing for a while.
+# Threshold: AGENT_TEAMS_STALL_SECONDS (default 600).
+#
+# Enable:  cp on_stalled.sample on_stalled && chmod +x on_stalled
+
+echo "$(date -u +%FT%TZ) STALLED $AT_ROLE after ${AT_IDLE_SECONDS}s" \
+  >> "$AT_PROJECT/.agent-teams/logs/hooks.log"
+
+# A nudge is cheap and often unsticks a role that is waiting on nothing:
+# agent-teams send "$AT_ROLE" --urgent "You have been quiet for ${AT_IDLE_SECONDS}s. Report status, or say what you are blocked on."

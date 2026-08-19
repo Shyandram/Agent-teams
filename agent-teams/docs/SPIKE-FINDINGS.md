@@ -176,6 +176,20 @@ opposite of what the tmux layout is for. Log with `tmux pipe-pane -o` instead, w
 copies output without touching the TTY, and set `remain-on-exit on` so a failed window
 stays readable.
 
+### bash 3.2 mis-parses a heredoc inside `$( )`
+
+Stock macOS ships bash 3.2, and
+
+    x="$(python3 - "$f" <<'PY'
+    ...
+    PY
+    )"
+
+fails to parse there, with the error reported far downstream in an unrelated function —
+which makes it genuinely hard to locate. Run the heredoc on its own, redirect to a file,
+and read the file back. This is a real constraint of the stated bash-3.2 portability
+contract, not a style preference.
+
 ### `basename | tr -c` mangles the trailing newline
 
 `tr -c 'A-Za-z0-9_-' '_'` rewrites the trailing newline into `_`, producing session names

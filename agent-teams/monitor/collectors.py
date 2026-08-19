@@ -45,6 +45,9 @@ MAX_TEXT_CHARS = 4000
 
 CLAUDE_TIMEOUT_SECONDS = 15
 
+# hooks.py lives beside this file; make it importable regardless of cwd.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -335,6 +338,8 @@ def collect_claude_transcript(cwd, session_id, warnings=None, home=None):
     result["last_activity"] = _mtime(path)
 
     last_text = None
+    tok_in = tok_out = tok_cache = 0
+    model_seen = None
     for line in read_tail_lines(path):
         line = line.strip()
         if not line or line[0] != "{":
@@ -348,6 +353,15 @@ def collect_claude_transcript(cwd, session_id, warnings=None, home=None):
         message = rec.get("message")
         if not isinstance(message, dict):
             continue
+        # Token accounting: the transcript carries per-message usage, so cost is
+        # observable without any extra API call.
+        usage = message.get("usage")
+        if isinstance(usage, dict):
+            tok_in += usage.get("input_tokens") or 0
+            tok_out += usage.get("output_tokens") or 0
+            tok_cache += usage.get("cache_read_input_tokens") or 0
+        if message.get("model"):
+            model_seen = message.get("model")
         content = message.get("content")
         if isinstance(content, str):
             last_text = content
@@ -360,7 +374,36 @@ def collect_claude_transcript(cwd, session_id, warnings=None, home=None):
                 if isinstance(text, str) and text.strip():
                     last_text = text
     result["last_text"] = _clip(last_text)
+    result["tokens_in"] = tok_in
+    result["tokens_out"] = tok_out
+    result["tokens_cache_read"] = tok_cache
+    result["model"] = model_seen
+    result["result_block"] = extract_result_block(last_text)
     return result
+
+
+RESULT_RE = re.compile(
+    r"<result>\s*(.*?)\s*</result>|```result\s*\n(.*?)\n```",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def extract_result_block(text):
+    """Pull a role's declared deliverable out of its last message.
+
+    Roles are asked to wrap their outcome in <result>...</result>. Surfacing that
+    instead of a raw transcript tail is what lets the lead read summaries rather
+    than transcripts. Returns None when the role has not declared one.
+    """
+    if not text:
+        return None
+    matches = RESULT_RE.findall(text)
+    if not matches:
+        return None
+    last = matches[-1]
+    block = last[0] or last[1]
+    block = (block or "").strip()
+    return block[:MAX_TEXT_CHARS] if block else None
 
 
 # ---------------------------------------------------------------------------
@@ -881,11 +924,19 @@ def collect_state(project, home=None):
                                                agent.get("sessionId"),
                                                warnings, home=home)
                 row["last_text"] = tr.get("last_text")
+                row["result_block"] = tr.get("result_block")
+                row["tokens_total"] = (tr.get("tokens_in") or 0) + (tr.get("tokens_out") or 0)
+                row["tokens_cache_read"] = tr.get("tokens_cache_read") or 0
+                row["model"] = tr.get("model")
                 last_activity = tr.get("last_activity")
             elif sf:
                 tr = collect_claude_transcript(sf.get("cwd") or project, full_id,
                                                warnings, home=home)
                 row["last_text"] = tr.get("last_text")
+                row["result_block"] = tr.get("result_block")
+                row["tokens_total"] = (tr.get("tokens_in") or 0) + (tr.get("tokens_out") or 0)
+                row["tokens_cache_read"] = tr.get("tokens_cache_read") or 0
+                row["model"] = tr.get("model")
                 last_activity = tr.get("last_activity")
                 states.append("stopped")
 
@@ -953,6 +1004,16 @@ def collect_state(project, home=None):
     rows.sort(key=lambda r: (_rank(r.get("state")), 0 if r.get("managed") else 1,
                              r.get("role") or ""))
 
+    # Turn observed states into action. A dashboard nobody is watching is not
+    # observability; hooks are what make an unattended fleet safe to leave alone.
+    # Fired before the payload is returned so a warning from a failed hook is
+    # visible in the same response, and never allowed to break collection.
+    try:
+        import hooks as _hooks
+        _hooks.fire(os.path.abspath(project), rows, warnings)
+    except Exception as exc:
+        warnings.append("hooks unavailable: %s" % exc)
+
     return {
         "project": project,
         "project_name": manifest.get("project_name") or os.path.basename(project),
@@ -985,9 +1046,9 @@ def render_table(state):
     if not roles:
         out.append("  no roles found — run: agent-teams init")
     else:
-        out.append("  %-1s %-16s %-13s %-7s %-9s %8s  %s"
-                   % ("", "ROLE", "RUNTIME", "LAYOUT", "STATE", "IDLE", "LAST"))
-        out.append("  " + "-" * 88)
+        out.append("  %-1s %-16s %-13s %-7s %-9s %8s %10s  %s"
+                   % ("", "ROLE", "RUNTIME", "LAYOUT", "STATE", "IDLE", "TOKENS", "LAST"))
+        out.append("  " + "-" * 100)
         for r in roles:
             idle = r.get("idle_seconds")
             if idle is None:
@@ -998,14 +1059,18 @@ def render_table(state):
                 idle_s = "%dm" % int(idle // 60)
             else:
                 idle_s = "%dh" % int(idle // 3600)
-            last = (r.get("last_text") or r.get("error") or "").replace("\n", " ").strip()
+            last = (r.get("result_block") or r.get("last_text")
+                    or r.get("error") or "")
+            last = " ".join(last.split())
             if len(last) > 38:
                 last = last[:37] + "…"
             st = r.get("state") or "unknown"
-            out.append("  %-1s %-16s %-13s %-7s %-9s %8s  %s"
+            tok = r.get("tokens_total") or 0
+            tok_s = format(tok, ",") if tok else "-"
+            out.append("  %-1s %-16s %-13s %-7s %-9s %8s %10s  %s"
                        % (STATE_GLYPH.get(st, "?"), r.get("role") or "?",
                           r.get("runtime") or "-", r.get("layout") or "-",
-                          st, idle_s, last))
+                          st, idle_s, tok_s, last))
 
         blocked = [r for r in roles if r.get("state") == "blocked"]
         errored = [r for r in roles if r.get("state") == "errored"]

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Fires when a role reports `status: done` in its result block.
+#
+# Enable:  cp on_done.sample on_done && chmod +x on_done
+
+echo "$(date -u +%FT%TZ) DONE $AT_ROLE (${AT_TOKENS} tok)" \
+  >> "$AT_PROJECT/.agent-teams/logs/hooks.log"
+echo "$AT_RESULT" >> "$AT_PROJECT/.agent-teams/logs/hooks.log"
+
+# Tell the general so it can hand out the next piece of work:
+# agent-teams send lead "$AT_ROLE finished: $(echo "$AT_RESULT" | head -3 | tr '\n' ' ')"

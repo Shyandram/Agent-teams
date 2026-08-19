@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Fires when a runtime reports a failure — most often a usage limit.
+# A quota-dead role looks idle from outside, which is why this exists.
+#
+# Enable:  cp on_errored.sample on_errored && chmod +x on_errored
+
+echo "$(date -u +%FT%TZ) ERRORED $AT_ROLE ($AT_RUNTIME): ${AT_LAST_TEXT:0:200}" \
+  >> "$AT_PROJECT/.agent-teams/logs/hooks.log"
+
+# Failing over to another runtime is a real decision with cost implications,
+# so it is left commented out rather than done silently:
+# agent-teams team move "$AT_ROLE" --runtime claude-code

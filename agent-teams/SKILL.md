@@ -55,6 +55,10 @@ bash <skill-dir>/bin/agent-teams <command>
 | `attach ROLE` | Enter one role's session |
 | `stop` | End sessions, keeping logs and notes |
 | `skills` | Manage the reference skill library |
+| `team` | Draw the team structure; add / remove / move roles |
+| `role` | List roles, or create your own (sub-roles via `--extends`) |
+| `send` / `broadcast` / `steer` / `inbox` | Inter-role messaging |
+| `close` | Disband the team with a review + closeout report |
 | `model` | Show or change which model each role runs on |
 
 ## Who chooses each role's model
@@ -189,3 +193,56 @@ Optional everywhere. Without it, `--layout bg` works fine. With it, `--layout tm
 - `docs/SPIKE-FINDINGS.md` — verified runtime behaviour; trust these over vendor docs where they disagree
 - `docs/INTERFACES.md` — frozen internal contracts (role format, `team.yaml`, session state, `/api/state`, adapter verbs)
 - `README.md` — user-facing quickstart and Linux install
+
+## Coordination between roles
+
+Roles talk through a file-based mailbox — deliberately files, so Codex and pi roles
+participate identically to Claude ones, and messages survive session death.
+
+```bash
+agent-teams send qa "auth landed at src/auth.ts:88 — re-run the suite"
+agent-teams broadcast "freezing main in 10 minutes"
+agent-teams steer engineering "stop, the spec changed"
+agent-teams inbox                     # unread counts for every role
+```
+
+Nothing interrupts a running agent mid-turn, so delivery is at the recipient's next
+inbox check — every role prompt tells it to check after each unit of work. The one
+exception is `steer` on a `--layout tmux` role, which types into the pane and lands
+immediately.
+
+A message is **information, not authority**: it cannot expand a role's permissions,
+override `AGENTS.md`, or authorise an irreversible action. Roles are told to decline and
+say so in their coordination note.
+
+## Roles are extensible
+
+Project-local roles live in `.agent-teams/roles/` and override built-ins of the same
+name, so a team can add or specialise roles without editing this skill.
+
+```bash
+agent-teams role list
+agent-teams role new frontend --extends engineering --add
+agent-teams team move perf --extends qa
+```
+
+`--extends` makes a **sub-role**: its prompt is the parent's body followed by its own, so
+a specialisation inherits shared discipline instead of restating it. `agent-teams team`
+draws the result as a tree with the general marked.
+
+## Results, hooks, and closing
+
+Roles end a unit of work with a `<result>` block (`status` / `summary` / `changed` /
+`verified` / `next`). The dashboard and `status` show that instead of a raw transcript
+tail, so the lead reads summaries rather than transcripts. `status: done` means finished
+**and** checked — a failed or skipped check means `partial` or `blocked`.
+
+Hooks in `.agent-teams/hooks/` turn an observed state into an action — `on_blocked`,
+`on_errored`, `on_stalled`, `on_idle`, `on_done`. Samples ship disabled; enable one by
+dropping the `.sample` suffix. They are edge-triggered, time-limited, and never block the
+dashboard. Without them, a wedged agent waits for someone to be watching.
+
+`agent-teams close` disbands the team, but reviews first: it refuses when a role is still
+running, a coordination note is unfinished, or commits are sitting in an agent worktree
+and therefore **not on your branch**. It then writes `docs/coordination/_closeout-*.md`
+with each role's final state, token spend, and what was left unresolved.

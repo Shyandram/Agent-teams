@@ -156,6 +156,10 @@ State precedence, loudest first:
 | `attach ROLE` | Enter a role's session |
 | `stop` | End sessions; logs and notes are kept |
 | `skills` | Manage the reference skill library (below) |
+| `team` | Draw the structure; add / remove / move roles |
+| `role` | List roles, or create your own (sub-roles via `--extends`) |
+| `send` `broadcast` `steer` `inbox` | Talk between roles |
+| `close` | Disband the team with a review + closeout report |
 | `model` | Show or change which model each role runs on |
 
 ---
@@ -304,3 +308,108 @@ docs/coordination/_template.md   # per-session note template
 - `docs/SPIKE-FINDINGS.md` — verified runtime behaviour. Trust it over vendor docs where they disagree.
 - `docs/INTERFACES.md` — frozen internal contracts.
 - `roles/README.md` — role format and how to add one.
+
+---
+
+## Team structure
+
+```bash
+agent-teams team
+```
+
+```
+  shop
+   ROLE                        RUNTIME      MODEL
+  ------------------------------------------------------
+  ? lead              general  claude-code  opus
+  ? engineering                claude-code  opus
+  ? `- checkout       sub      claude-code  opus
+  ? qa                         codex        default
+  ? ux                         claude-code  sonnet
+
+  ! blocked   x errored   > working   - idle   . stopped   ? not started
+```
+
+Restructure without hand-editing `team.yaml`:
+
+```bash
+agent-teams team add legal
+agent-teams team remove ux
+agent-teams team move qa --runtime claude-code
+agent-teams team move checkout --extends engineering
+agent-teams team move engineering --general
+```
+
+## Your own roles, and sub-roles
+
+Project roles live in `.agent-teams/roles/` and override built-ins of the same name, so
+you can add or specialise roles without touching the skill.
+
+```bash
+agent-teams role list
+agent-teams role new frontend --extends engineering --add
+agent-teams role show frontend
+```
+
+`--extends` makes a **sub-role**: its prompt is the parent's body followed by its own, so
+a specialisation inherits the shared discipline instead of restating it.
+
+## Talking between roles
+
+```bash
+agent-teams send qa "auth landed at src/auth.ts:88 — re-run the suite"
+agent-teams broadcast "freezing main in 10 minutes"
+agent-teams steer engineering "stop, the spec changed"
+agent-teams inbox                  # unread counts for every role
+```
+
+Messages are JSON files, so Codex and pi roles participate exactly like Claude ones and
+nothing is lost when a session dies. Delivery is at the recipient's next inbox check —
+every role prompt tells it to check after each unit of work. `steer` on a `--layout tmux`
+role types straight into the pane and lands immediately.
+
+## Results
+
+Roles end a unit of work with a block the dashboard shows instead of a transcript tail:
+
+```
+<result>
+status: done
+summary: Token refresh now rotates hourly.
+changed: src/auth.ts:88
+verified: npm test -> 42 passed
+next: none
+</result>
+```
+
+`status: done` means finished **and** checked. A failed or skipped check means `partial`
+or `blocked` — never `done`.
+
+## Hooks
+
+`.agent-teams/hooks/` turns a state into an action, so you do not have to be watching:
+
+| Hook | Fires when |
+|---|---|
+| `on_blocked` | waiting on a permission prompt — never self-resolves |
+| `on_errored` | quota, auth, or crash |
+| `on_stalled` | quiet for `AGENT_TEAMS_STALL_SECONDS` (default 600) |
+| `on_idle` / `on_done` | finished a turn / reported `status: done` |
+
+Samples ship disabled — enable one by dropping the `.sample` suffix and `chmod +x`. They
+are edge-triggered (once per state change, not per poll), time-limited to 20s, and never
+block the dashboard.
+
+## Closing the team
+
+```bash
+agent-teams close                  # reviews, then refuses if work would be lost
+agent-teams close --dry-run        # review only
+agent-teams close --force
+```
+
+It refuses while a role is still running, a coordination note is unfinished, or commits
+are sitting in an agent worktree — those are **not on your branch**. Then it stops
+everything, removes the tmux session, and writes `docs/coordination/_closeout-*.md` with
+each role's final state, token spend, and what was left unresolved. Logs, notes, and
+worktrees are always kept.

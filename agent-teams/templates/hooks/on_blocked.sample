@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Fires when a role starts waiting on a permission prompt.
+# A blocked background agent NEVER resolves itself — this is the one state that
+# always needs a human, so make it loud.
+#
+# Enable:  cp on_blocked.sample on_blocked && chmod +x on_blocked
+#
+# Available: AT_ROLE AT_STATE AT_RUNTIME AT_PROJECT AT_SESSION_ID
+#            AT_IDLE_SECONDS AT_TOKENS AT_LAST_TEXT AT_RESULT
+
+msg="[agent-teams] $AT_ROLE is BLOCKED on a permission prompt in $(basename "$AT_PROJECT")"
+
+# macOS notification
+command -v osascript >/dev/null 2>&1 &&
+  osascript -e "display notification \"$msg\" with title \"agent-teams\"" 2>/dev/null
+
+# Linux desktop notification
+command -v notify-send >/dev/null 2>&1 && notify-send "agent-teams" "$msg" 2>/dev/null
+
+# Always leave a trail
+echo "$(date -u +%FT%TZ) $msg" >> "$AT_PROJECT/.agent-teams/logs/hooks.log"
+
+# Push it somewhere you actually read:
+# curl -fsS -X POST "$SLACK_WEBHOOK_URL" -H 'Content-Type: application/json' \
+#   -d "{\"text\":\"$msg\"}" >/dev/null
