@@ -493,3 +493,18 @@ Optional named specialists, private to one role, are available with `init --suba
 They are passed per session via `claude --agents`, so they are genuinely private — two
 roles can carry different definitions under the same name, and nothing lands in the
 shared `.claude/agents/` namespace.
+
+---
+
+## Not built yet
+
+Ideas that are designed but deliberately not implemented. They live in `docs/design/`
+so the reasoning is available when there is a reason to build them.
+
+| Idea | Why it is not built |
+|---|---|
+| [Role priority and multiple hosts](docs/design/multi-host-and-priority.md) | Waiting on a real multi-server project. The design separates *pooled* instances (interchangeable, ordered by priority, can fail over) from the *partitioned* instances that exist today (different `focus`, all active, ordering meaningless). Transport is left open on purpose — it should be chosen against an actual second machine. |
+
+The highest-value slice, if it is ever picked up, is automatic failover when a pooled
+role exhausts its quota: the monitor already detects that state, so promotion is a short
+step from detection that works.
