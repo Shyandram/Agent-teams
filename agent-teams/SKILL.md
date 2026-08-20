@@ -58,7 +58,7 @@ bash <skill-dir>/bin/agent-teams <command>
 | `focus` | Browse the catalogue of assignments an instance can own |
 | `team` | Draw the team structure; add / remove / move roles |
 | `role` | List roles, or create your own (sub-roles via `--extends`) |
-| `send` / `broadcast` / `steer` / `inbox` | Inter-role messaging |
+| `send` / `broadcast` / `acks` / `steer` / `inbox` | Inter-role messaging |
 | `close` | Disband the team with a review + closeout report |
 | `model` | Show or change which model each role runs on |
 
@@ -202,10 +202,14 @@ participate identically to Claude ones, and messages survive session death.
 
 ```bash
 agent-teams send qa "auth landed at src/auth.ts:88 — re-run the suite"
-agent-teams broadcast "freezing main in 10 minutes"
+agent-teams broadcast "freezing main in 10 minutes"   # everyone reads this FIRST
+agent-teams acks                      # who has read it, who has not
 agent-teams steer engineering "stop, the spec changed"
 agent-teams inbox                     # unread counts for every role
 ```
+
+A **broadcast** is one shared record every role reads before its own inbox, so `acks`
+can report who has seen it and the sender gets a receipt when the last role does.
 
 Nothing interrupts a running agent mid-turn, so delivery is at the recipient's next
 inbox check — every role prompt tells it to check after each unit of work. The one

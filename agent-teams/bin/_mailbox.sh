@@ -72,7 +72,9 @@ PY
 at_mb_read() {
   local project="$1" role="$2" all="${3:-}" fmt="${4:-}"
   local f; f="$(at_inbox_dir "$project")/$role.json"
-  [ -f "$f" ] || return 0
+  # A role with no mailbox yet must still emit valid JSON — returning nothing here
+  # produced `{"broadcast":[...],"inbox":}` from `inbox --json`, which no parser reads.
+  [ -f "$f" ] || { [ "$fmt" = "--json" ] && printf '[]\n'; return 0; }
   python3 - "$f" "$all" "$fmt" <<'PY'
 import json, sys
 path, allf, fmt = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -194,7 +196,7 @@ print(sum(1 for m in msgs if role not in (m.get("acks") or {}) and m.get("from")
 at_bc_read() {
   local project="$1" role="$2" all="${3:-}" fmt="${4:-}"
   local f; f="$(at_bc_file "$project")"
-  [ -f "$f" ] || return 0
+  [ -f "$f" ] || { [ "$fmt" = "--json" ] && printf '[]\n'; return 0; }
   python3 - "$f" "$role" "$all" "$fmt" <<'PY'
 import json, sys
 path, role, allf, fmt = sys.argv[1:5]

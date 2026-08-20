@@ -1246,15 +1246,24 @@ PY
     blockers=$((blockers + 1))
   fi
 
-  # unread messages
+  # unread messages — inbox AND broadcast. Broadcasts stopped living in inboxes when
+  # they became one shared record, so counting only inboxes would let a team disband
+  # with an unread announcement and report a clean review.
   local unread=""
   at_team_roles "$ty" | while IFS=$'\037' read -r r _a _b _c _d _e _f _g _h; do
     [ -n "$r" ] || continue
-    local n; n="$(at_mb_unread_count "$project" "$r")"
-    [ "$n" -gt 0 ] && printf '  %-18s %s unread\n' "$r" "$n" >&2
+    local n b; n="$(at_mb_unread_count "$project" "$r")"
+    b="$(at_bc_unread_count "$project" "$r")"
+    if [ "$b" -gt 0 ]; then
+      printf '  %-18s %s unread, %s broadcast never read\n' "$r" "$n" "$b" >&2
+    elif [ "$n" -gt 0 ]; then
+      printf '  %-18s %s unread\n' "$r" "$n" >&2
+    fi
   done
   unread="$(at_team_roles "$ty" | while IFS=$'\037' read -r r _a _b _c _d _e _f _g _h; do
-    [ -n "$r" ] && [ "$(at_mb_unread_count "$project" "$r")" -gt 0 ] && printf 'x'
+    [ -n "$r" ] || continue
+    [ "$(at_mb_unread_count "$project" "$r")" -gt 0 ] && printf 'x'
+    [ "$(at_bc_unread_count "$project" "$r")" -gt 0 ] && printf 'x'
   done)"
   [ -n "$unread" ] && { at_say ""; at_warn "some messages were never read"; }
 
@@ -2363,7 +2372,11 @@ except Exception: print("bg")' "$f" 2>/dev/null)"
   # the sweep the old session survives as a zombie and every restart adds another.
   cmd_stop -C "$project" --only "$roles" --orphans $kill_flag 2>&1 | sed 's/^/  /' >&2
   sleep 2   # `claude stop` takes a moment to settle before the id is free
-  cmd_launch -C "$project" --only "$roles" --layout "$layout" ${task:+--task "$task"}
+  # --force skips the AIM readiness gate on purpose. This team has already launched,
+  # so it either passed the gate or was forced past it; re-checking here would mean a
+  # wedged role could not be restarted mid-flight just because the aim gained a TODO —
+  # and clearing a wedged role is what restart is for.
+  cmd_launch -C "$project" --only "$roles" --layout "$layout" --force ${task:+--task "$task"}
 }
 
 # =====================================================================

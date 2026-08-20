@@ -162,7 +162,7 @@ State precedence, loudest first:
 | `skills` | Manage the reference skill library (below) |
 | `team` | Draw the structure; add / remove / move roles |
 | `role` | List roles, or create your own (sub-roles via `--extends`) |
-| `send` `broadcast` `steer` `inbox` | Talk between roles |
+| `send` `broadcast` `acks` `steer` `inbox` | Talk between roles |
 | `close` | Disband the team with a review + closeout report |
 | `model` | Show or change which model each role runs on |
 
@@ -370,10 +370,17 @@ a specialisation inherits the shared discipline instead of restating it.
 
 ```bash
 agent-teams send qa "auth landed at src/auth.ts:88 — re-run the suite"
-agent-teams broadcast "freezing main in 10 minutes"
+agent-teams broadcast "freezing main in 10 minutes"   # everyone reads this FIRST
+agent-teams acks                   # who has read it, who has not
 agent-teams steer engineering "stop, the spec changed"
 agent-teams inbox                  # unread counts for every role
 ```
+
+A **broadcast** is one shared record, not a copy per inbox, and every role drains it
+*before* its own messages — it is what changes the plan for everyone, so reading it
+second means acting on instructions it already superseded. Because there is one record,
+`acks` can answer who has actually read it, and the sender gets a receipt once the last
+role has.
 
 Messages are JSON files, so Codex and pi roles participate exactly like Claude ones and
 nothing is lost when a session dies. Delivery is at the recipient's next inbox check —
