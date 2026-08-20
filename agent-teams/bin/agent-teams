@@ -44,7 +44,8 @@ ${AT_BOLD}COMMANDS${AT_RESET}
   status    Print a snapshot of every role
   monitor   Serve the web dashboard
   attach    Enter one role's session
-  stop      Stop sessions (logs and notes are kept)
+  stop      Stop sessions (--kill, --orphans); logs and notes are kept
+  restart   Stop and start again, keeping each role's layout
   close     Disband the team: review, then tear down + write a closeout report
 
 ${AT_BOLD}COMMON OPTIONS${AT_RESET}
@@ -2066,13 +2067,30 @@ cmd_attach() {
 # stop
 # =====================================================================
 cmd_stop() {
-  local project="$PWD" only="" kill_flag=""
+  local project="$PWD" only="" kill_flag="" orphans=0
   while [ $# -gt 0 ]; do
     case "$1" in
       -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       --only) at_need_arg "$1" $#; only="$2"; shift 2 ;;
       --kill) kill_flag="--kill"; shift ;;
-      -h|--help) at_say "agent-teams stop [-C PATH] [--only a,b] [--kill]"; return 0 ;;
+      --orphans) orphans=1; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams stop — stop roles, keeping logs and coordination notes
+
+  --only a,b    just these roles
+  --kill        also remove the agent's retained git worktree (inspect first —
+                commits may live there and are not on your branch)
+  --orphans     ALSO stop this project's agent sessions that no session file
+                tracks any more. Only sessions this tool named (at:<role>) are
+                touched, so an interactive session you are sitting in inside the
+                same directory is never killed.
+
+Without --orphans, stop reaches only roles listed in .agent-teams/sessions/. A
+role whose session file was lost stays visible in the monitor but is otherwise
+unreachable — that is what --orphans is for.
+EOF
+        return 0 ;;
       *) at_die "stop: unknown option '$1'" ;;
     esac
   done
@@ -2103,8 +2121,96 @@ cmd_stop() {
     stopped=$((stopped + 1))
   done
 
+  # Sessions this tool started that no session file tracks any more: a lost or
+  # hand-deleted session file otherwise leaves an agent running with no way to reach
+  # it through the CLI. Only at:-named sessions are touched, so an interactive
+  # session you are sitting in inside the same directory is never killed.
+  if [ "$orphans" -eq 1 ]; then
+    local killed=0 oid oname
+    while IFS=$'\t' read -r oid oname; do
+      [ -n "$oid" ] || continue
+      local orole="${oname#at:}"
+      [ -f "$sd/$orole.json" ] && continue
+      if [ -n "$only" ] && ! printf ',%s,' "$only" | grep -q ",$orole,"; then continue; fi
+      claude stop "$oid" >/dev/null 2>&1 </dev/null || true
+      [ "$kill_flag" = "--kill" ] && { claude rm "$oid" >/dev/null 2>&1 </dev/null || true; }
+      at_ok "stopped orphan $oname ($oid)"
+      killed=$((killed + 1))
+    done <<EOF
+$(claude agents --json --all --cwd "$project" 2>/dev/null </dev/null | python3 -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    rows = []
+for r in rows if isinstance(rows, list) else []:
+    name = r.get("name") or ""
+    if name.startswith("at:") and (r.get("state") or "") not in ("stopped",):
+        print("%s\t%s" % (r.get("id") or "", name))
+')
+EOF
+    [ "$killed" -gt 0 ] && stopped=$((stopped + killed))
+    [ "$killed" -eq 0 ] && at_info "no orphaned agent sessions in this project"
+  fi
+
   at_say ""
   at_info "$stopped stopped — logs and coordination notes kept"
+}
+
+# =====================================================================
+# restart — stop and relaunch, keeping each role's recorded layout
+# =====================================================================
+cmd_restart() {
+  local project="$PWD" only="" task="" kill_flag=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
+      --only) at_need_arg "$1" $#; only="$2"; shift 2 ;;
+      --task) at_need_arg "$1" $#; task="$2"; shift 2 ;;
+      --kill) kill_flag="--kill"; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams restart — stop roles and start them again
+
+  --only a,b    just these roles (default: every role with a session)
+  --task "..."  opening task for the restarted roles
+  --kill        also remove retained worktrees when stopping (inspect first)
+
+Reuses the layout each role was launched with. Use it after changing a role's
+model or focus, or to clear a role that is wedged: a blocked agent will not
+recover on its own, and restarting is usually faster than answering its prompt.
+EOF
+        return 0 ;;
+      *) at_die "restart: unknown option '$1'" ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
+
+  local sd; sd="$(at_sessions "$project")"
+  [ -d "$sd" ] || at_die "nothing is running here"
+
+  # Capture what to bring back BEFORE stopping, since stop removes the records.
+  local roles="" layout="bg" f r
+  for f in "$sd"/*.json; do
+    [ -e "$f" ] || continue
+    r="$(basename -- "$f" .json)"
+    if [ -n "$only" ] && ! printf ',%s,' "$only" | grep -q ",$r,"; then continue; fi
+    roles="${roles}${roles:+,}$r"
+    layout="$(python3 -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get("layout") or "bg")
+except Exception: print("bg")' "$f" 2>/dev/null)"
+  done
+  [ -n "$roles" ] || at_die "no matching roles are running${only:+ (--only $only)}"
+
+  at_info "restarting: $roles  (layout $layout)"
+  # --orphans matters here: `claude stop` on a BLOCKED session does not always take
+  # effect, and restarting is most often exactly what you do to a blocked role. Without
+  # the sweep the old session survives as a zombie and every restart adds another.
+  cmd_stop -C "$project" --only "$roles" --orphans $kill_flag 2>&1 | sed 's/^/  /' >&2
+  sleep 2   # `claude stop` takes a moment to settle before the id is free
+  cmd_launch -C "$project" --only "$roles" --layout "$layout" ${task:+--task "$task"}
 }
 
 # =====================================================================
@@ -2129,6 +2235,7 @@ main() {
     monitor) cmd_monitor "$@" ;;
     attach)  cmd_attach "$@" ;;
     stop)    cmd_stop "$@" ;;
+    restart) cmd_restart "$@" ;;
     -V|--version) echo "agent-teams $AT_VERSION" ;;
     ""|-h|--help) usage ;;
     *) at_err "unknown command '$cmd'"; usage; exit 2 ;;

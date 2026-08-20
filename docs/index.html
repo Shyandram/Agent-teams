@@ -182,7 +182,9 @@ code{font-family:var(--mono); font-size:.87em; color:var(--ink)}
   <a class="brand" href="#top">agent<em>-</em>teams</a>
   <nav>
     <a href="#states">States</a>
-    <a href="#compose">Compose</a>
+    <a href="#modes">Modes</a>
+    <a href="#talk">Messages</a>
+    <a href="#monitor">Monitor</a>
     <a href="#quiet">Failure</a>
     <a href="#install">Install</a>
     <a href="https://github.com/Shyandram/Agent-teams">GitHub</a>
@@ -249,6 +251,31 @@ code{font-family:var(--mono); font-size:.87em; color:var(--ink)}
   </div>
 </div>
 
+<div class="page band" id="modes">
+  <p class="tag">Two modes</p>
+  <h2 style="margin-top:.7rem">Native teammates cannot<br>be spawned headlessly</h2>
+  <p class="lede">A <code>-p</code> session never spawns them — a native Claude team needs an interactive TTY. That constraint, not a preference, is why there are two modes at all. Anything that has to run in the background, survive an SSH disconnect, or span runtimes cannot use the native mechanism.</p>
+
+  <div class="two" style="margin-top:2.4rem">
+    <div>
+      <p class="cap"><i>Mode A</i><span class="dim">— in-session, interactive, Claude only</span></p>
+<pre class="cmd">agent-teams launch --mode native</pre>
+      <p class="lede">Spawns nothing. It checks the setup and prints the exact recipe to paste into an interactive session, because only Claude-inside-a-session can create teammates. Those teammates get the native <code>SendMessage</code> mailbox and the shared task list.</p>
+    </div>
+    <div>
+      <p class="cap"><i>Mode B</i><span class="dim">— detached fleet, all runtimes, the default</span></p>
+<pre class="cmd">agent-teams launch --layout bg     <span class="c"># background + logs</span>
+agent-teams launch --layout tmux   <span class="c"># interactive windows</span></pre>
+      <p class="lede">One OS process per role, so Claude Code, Codex and pi roles sit in one team. <code>--layout tmux</code> is the one worth knowing: each role runs in its own window of a detached session, so the fleet survives SSH disconnect — and you can take a role over mid-flight.</p>
+    </div>
+  </div>
+
+  <div class="stack">
+<pre class="cmd">agent-teams attach engineering   <span class="c"># drop into that role's window and type at it</span></pre>
+    <p class="pt">Both modes share the same role library, the same <code>AGENTS.md</code>, and the same coordination protocol. They are the interactive and the detached form of one team, not two products.</p>
+  </div>
+</div>
+
 <div class="page band" id="compose">
   <p class="tag">Composition</p>
   <h2 style="margin-top:.7rem">Parallelism only pays when<br>instances own different work</h2>
@@ -267,6 +294,75 @@ agent-teams init --roles <span class="v">"lead,qa"</span> \
   </div>
 
   <p class="lede" style="margin-top:2rem">Presets are deliberately small — <code>solo</code> 1, <code>app-dev</code> 3, <code>research</code> 4 — with <code>-wide</code> variants for work that genuinely splits. Every role is another full context to pay for and another thing that can wedge, so <code>init</code> warns above six.</p>
+</div>
+
+<div class="page band" id="talk">
+  <p class="tag">Coordination</p>
+  <h2 style="margin-top:.7rem">Messages are files,<br>so nothing is lost with a session</h2>
+  <p class="lede">Roles talk through a file-based JSON mailbox rather than through a runtime feature. Codex and pi roles therefore participate identically to Claude ones, and a message outlives the session it was addressed to.</p>
+
+  <div class="stack">
+<pre class="cmd">agent-teams send qa <span class="v">"auth landed at src/auth.ts:88 — re-run the suite"</span>
+agent-teams broadcast <span class="v">"freezing main in 10 minutes"</span>
+agent-teams steer engineering <span class="v">"stop, the spec changed"</span>
+agent-teams inbox                  <span class="c"># unread counts for every role</span></pre>
+    <p class="pt">Nothing interrupts a running agent mid-turn. Delivery is at the recipient's next inbox check, and every role prompt tells it to check after each unit of work. The single exception is <code>steer</code> on a <code>--layout tmux</code> role, which types into the pane and lands immediately.</p>
+    <p class="pt">A message is <strong>information, not authority</strong>. It cannot expand a role's permissions, override <code>AGENTS.md</code>, or authorise an irreversible action — a role that receives one is told to decline and to say so in its coordination note.</p>
+  </div>
+
+  <div class="shell" style="margin-top:1.9rem">
+    <div class="hd"><b>agent-teams inbox</b><span>shop</span></div>
+<pre><span class="b">  engineering        2 unread</span>
+  research-lit       <span class="dim">—</span>
+  qa                 <span class="dim">—</span>
+<span class="b">  devops             1 unread</span>
+  ux                 <span class="dim">—</span></pre>
+  </div>
+</div>
+
+<div class="page band" id="branches">
+  <p class="tag">Write access</p>
+  <h2 style="margin-top:.7rem">One role, one branch</h2>
+  <p class="lede">Each role owns exactly one branch, named from its instance so it is stable without another field to drift. It may commit and push there freely — small, self-describing commits as it goes, rather than one silent batch at the end. It may push nothing else.</p>
+
+  <div class="stack">
+<pre class="cmd">agent/&lt;role&gt;       <span class="c"># yours — commit and push as often as you like</span>
+main               <span class="c"># denied</span>
+agent/&lt;other&gt;      <span class="c"># denied — read it, fetch it, diff it, never write it</span>
+git push --force   <span class="c"># denied everywhere, --force-with-lease included</span></pre>
+    <p class="pt">Prefix matching cannot scope a push to one branch, so the deny list catches force-pushes, deletions and pushes to <code>main</code>, and the one-branch rule itself lives in the contract and in every role's prompt. Merging is not the role's call: it names the branch in its result block, and a human decides what gets integrated.</p>
+  </div>
+</div>
+
+<div class="page band" id="monitor">
+  <p class="tag">Observation</p>
+  <h2 style="margin-top:.7rem">Read-only by construction</h2>
+  <p class="lede">Python 3 standard library — no pip, no Node, nothing to stand up. It binds <code>127.0.0.1</code> and defines no <code>do_POST</code>: writes return 501 because the handler does not exist, not because a check remembered to reject them. There is no authentication, so reach it through a tunnel and not through <code>--bind 0.0.0.0</code>.</p>
+
+  <div class="stack">
+<pre class="cmd">agent-teams monitor -C &lt;project&gt;   <span class="c"># [--port 8787] [--refresh 2]</span>
+
+<span class="c"># from the laptop</span>
+ssh -L 8787:localhost:8787 user@your-linux-box</pre>
+    <p class="pt">It never blanks. When a collector goes unreachable the page keeps the last known rows behind a staleness warning, because an empty table would read as <em>nothing running</em> — the exact lie the tool exists to prevent.</p>
+  </div>
+
+  <div class="fails">
+    <div class="fail">
+      <h3><code>claude agents --json</code></h3>
+      <p class="cure">pid, status, state and session id for each Claude session in the project. No TTY required.</p>
+    </div>
+    <div class="fail">
+      <h3>Session transcripts</h3>
+      <p class="cure">The last 256 KB of the session JSONL; whole files reach tens of megabytes. An agent that relocated into a git worktree writes its transcript under the <em>worktree's</em> slug, so the collector falls back to a worktree glob rather than losing it silently. <b><code>claude logs</code> is deliberately not used</b> — it replays the raw TUI stream, which redraws in place and does not survive stripping.</p>
+    </div>
+    <div class="fail">
+      <h3>Codex rollouts</h3>
+      <p class="cure">Rollout files matched on the session's recorded working directory, scanned for errors and failed turns. Live sessions that no role in the manifest claims are still shown, marked unmanaged: hiding a blocked stray would be a lie by omission.</p>
+    </div>
+  </div>
+
+  <p class="lede" style="margin-top:2rem">A runtime state it does not recognise degrades to <code>unknown</code> <em>and</em> emits a warning naming the value, so the dashboard never invents a state it does not understand. <code>agent-teams status --json</code> emits the same payload as <code>GET /api/state</code>.</p>
 </div>
 
 <div class="page band" id="quiet">
@@ -291,6 +387,25 @@ agent-teams init --roles <span class="v">"lead,qa"</span> \
       <h3>Work on a side branch</h3>
       <p class="cure">A background agent may relocate itself into a git worktree and commit there, so its work is not in your tree. <b>close refuses to disband</b> while commits sit in a worktree, and names which.</p>
     </div>
+  </div>
+</div>
+
+<div class="page band" id="close">
+  <p class="tag">Teardown</p>
+  <h2 style="margin-top:.7rem">close reviews before<br>it tears anything down</h2>
+  <p class="lede">Disbanding is where work goes missing, so <code>close</code> reviews first and refuses rather than proceeds. Each refusal names what it found.</p>
+
+  <div class="ledger">
+    <div class="row hot"><span class="g">!</span><span class="nm">role running</span><span class="ds">A session is still live. Stop it, or read what it is in the middle of.</span></div>
+    <div class="row hot"><span class="g">!</span><span class="nm">note open</span><span class="ds">A coordination note is unfinished — that role never recorded how its work ended.</span></div>
+    <div class="row hot"><span class="g">!</span><span class="nm">worktree commits</span><span class="ds">Commits are sitting in an agent worktree, which means they are <em>not on your branch</em>. It names which, so you can look before deciding.</span></div>
+  </div>
+
+  <div class="stack">
+<pre class="cmd">agent-teams close             <span class="c"># review, then refuse if work would be lost</span>
+agent-teams close --dry-run   <span class="c"># the review only</span>
+agent-teams close --force     <span class="c"># proceed anyway</span></pre>
+    <p class="pt">When it does proceed it stops every session, removes the tmux session, and writes a closeout report giving each role's final state, its token spend, and what was left unresolved. Logs, notes and worktrees are always kept.</p>
   </div>
 </div>
 
