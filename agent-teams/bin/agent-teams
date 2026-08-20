@@ -150,7 +150,9 @@ EOF
     [ "$kind_explicit" -eq 1 ] || kind="custom"
   else
     [ -n "$kind" ] || kind="app-dev"
-    roles_csv="$(at_preset_roles "$kind")" || at_die "unknown preset '$kind' (research|app-dev|full-stack|custom)"
+    roles_csv="$(at_preset_roles "$kind")" || at_die "unknown preset '$kind'
+available: solo app-dev research app-dev-wide research-wide full-stack
+(or use --roles to name them yourself)"
   fi
 
   # Validate runtimes up front so we never write a manifest that cannot launch.

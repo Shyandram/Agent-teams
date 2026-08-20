@@ -69,9 +69,14 @@ TASK: $task"
     local sess="${tmux_target%%:*}" win="${tmux_target#*:}"
     local pf="$project/.agent-teams/prompts/.pi-$role.txt"
     printf '%s\n' "$full_prompt" >"$pf"
-    # shellcheck disable=SC2086
-    tmux new-window -d -t "$sess" -n "$win" -c "$project" \
-      "pi $model_args \"\$(cat '$pf')\"" || return 1
+    # Generated launcher: safe against apostrophes in the prompt.
+    local launcher="$project/.agent-teams/prompts/.launch-$role.sh"
+    if [ -n "$model" ]; then
+      at_write_launcher "$launcher" pi --model "$model" "$full_prompt" || return 1
+    else
+      at_write_launcher "$launcher" pi "$full_prompt" || return 1
+    fi
+    tmux new-window -d -t "$sess" -n "$win" -c "$project" "$launcher" || return 1
     tmux set-option -w -t "$tmux_target" remain-on-exit on 2>/dev/null || true
     tmux pipe-pane -o -t "$tmux_target" "cat >> '$log'" 2>/dev/null || true
     printf '%s' "$tmux_target"

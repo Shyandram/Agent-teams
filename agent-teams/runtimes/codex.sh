@@ -50,10 +50,15 @@ TASK: $task"
     local pf="$project/.agent-teams/prompts/.codex-$role.txt"
     printf '%s\n' "$full_prompt" >"$pf"
     # No `tee`: piping would drop the TTY and turn this into a one-shot run.
-    # shellcheck disable=SC2086
-    tmux new-window -d -t "$sess" -n "$win" -c "$project" \
-      "codex --sandbox '$sandbox' $model_args \"\$(cat '$pf')\"" \
-      || return 1
+    # Arguments go through a generated launcher so an apostrophe in the prompt cannot
+    # break the command or inject into the pane.
+    local launcher="$project/.agent-teams/prompts/.launch-$role.sh"
+    if [ -n "$model" ]; then
+      at_write_launcher "$launcher" codex --sandbox "$sandbox" -m "$model" "$full_prompt" || return 1
+    else
+      at_write_launcher "$launcher" codex --sandbox "$sandbox" "$full_prompt" || return 1
+    fi
+    tmux new-window -d -t "$sess" -n "$win" -c "$project" "$launcher" || return 1
     tmux set-option -w -t "$tmux_target" remain-on-exit on 2>/dev/null || true
     tmux pipe-pane -o -t "$tmux_target" "cat >> '$log'" 2>/dev/null || true
     printf '%s' "$tmux_target"

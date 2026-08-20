@@ -47,11 +47,23 @@ rt_launch() {
     # tears the window down — the exact opposite of what this layout is for. Log with
     # `pipe-pane` instead, which copies output without touching the TTY.
     local sess="${tmux_target%%:*}" win="${tmux_target#*:}"
-    local agents_arg=""
-    [ -n "$agents" ] && agents_arg="--agents '$agents' "
-    tmux new-window -d -t "$sess" -n "$win" -c "$project" \
-      "claude --append-system-prompt-file '$prompt_file' --permission-mode '$perm' --model '$model' ${agents_arg}-n 'at:$role' '$task'" \
-      || return 1
+
+    # Never interpolate values into a quoted command string for tmux: an apostrophe in
+    # the task would break it, and a crafted one could inject commands into the pane.
+    # Write a launcher whose arguments bash itself has quoted, and run that.
+    local launcher="$project/.agent-teams/prompts/.launch-$role.sh"
+    if [ -n "$agents" ]; then
+      at_write_launcher "$launcher" claude \
+        --append-system-prompt-file "$prompt_file" \
+        --permission-mode "$perm" --model "$model" \
+        --agents "$agents" -n "at:$role" "$task" || return 1
+    else
+      at_write_launcher "$launcher" claude \
+        --append-system-prompt-file "$prompt_file" \
+        --permission-mode "$perm" --model "$model" \
+        -n "at:$role" "$task" || return 1
+    fi
+    tmux new-window -d -t "$sess" -n "$win" -c "$project" "$launcher" || return 1
     # Keep the window on failure so the error is readable rather than vanishing.
     tmux set-option -w -t "$tmux_target" remain-on-exit on 2>/dev/null || true
     tmux pipe-pane -o -t "$tmux_target" "cat >> '$log'" 2>/dev/null || true
