@@ -129,9 +129,12 @@ thing that can wedge; add one when a gap actually appears.
   solo            engineering                                        (1)
   app-dev         lead, engineering, qa                              (3)
   research        lead, research, analysis, qa                       (4)
-  app-dev-wide    + engineering:api/ui, qa:functional/regression, devops   (6)
-  research-wide   + research:survey/data, analysis:primary/ablation, engineering (7)
-  full-stack      + ux, product-marketing, legal                     (8)
+  app-dev-wide    + engineering:api/ui, qa:functional/regression, devops,
+                    verification                                     (7)
+  research-wide   + research:survey/data, analysis:primary/ablation,
+                    engineering, verification                        (8)
+  full-stack      + engineering:api/ui, ux, devops, verification,
+                    product-marketing, legal                         (9)
 
 Instances: several of one role can run at once.
   research:lit    -> research-lit,  built from the research role

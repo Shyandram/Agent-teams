@@ -123,9 +123,9 @@ another thing that can wedge.
 | `solo` | engineering | 1 |
 | `app-dev` | lead, engineering, qa | 3 |
 | `research` | lead, research, analysis, qa | 4 |
-| `app-dev-wide` | + engineering:api/ui, qa:functional/regression, devops, verification | 6+ |
-| `research-wide` | + research:survey/data, analysis:primary/ablation, engineering, verification | 7+ |
-| `full-stack` | + ux, product-marketing, legal, verification | 8+ |
+| `app-dev-wide` | lead, engineering:api, engineering:ui, qa:functional, qa:regression, devops, verification | 7 |
+| `research-wide` | lead, research:survey, research:data, analysis:primary, analysis:ablation, engineering, qa, verification | 8 |
+| `full-stack` | lead, engineering:api, engineering:ui, ux, qa, devops, verification, product-marketing, legal | 9 |
 
 ```bash
 # a research team with three researchers on different literatures
@@ -609,8 +609,9 @@ Under `.agent-teams/`:
 | `hooks/` | Executables fired on a state change — see [hooks/README.md](../templates/hooks/README.md) |
 | `reference-skills/` | Vendored copy from `skills --fetch`. Gitignored |
 
-**Roles may commit and push, but only to their own branch** (`at/<role>/<topic>`). The
-allowlist denies force-push and pushes to `main`.
+**Roles may commit and push, but only to their own branch — `agent/<role>`**, one branch
+per role instance (so `research-survey` owns `agent/research-survey`). The allowlist
+denies force-push and pushes to `main`.
 
 ---
 
