@@ -306,7 +306,7 @@ docs/coordination/_template.md   # per-session note template
 | Runtime | Status |
 |---|---|
 | `claude-code` | Verified end to end |
-| `codex` | Integration verified; a full write test was blocked by a usage limit |
+| `codex` | Verified end to end — launch, writes, role binding, monitor, close |
 | `pi` | **Untested** — pi was not installed during development |
 
 ---

@@ -165,7 +165,7 @@ Roles must never carry `skills:` or `mcpServers:` frontmatter — both are silen
 | Runtime | Status | Role injection |
 |---|---|---|
 | `claude-code` | Verified | `--append-system-prompt-file` |
-| `codex` | Verified (integration; quota-limited during testing) | Prompt prefix + native `AGENTS.md` discovery |
+| `codex` | Verified end to end | Prompt prefix + native `AGENTS.md` discovery |
 | `pi` | **Untested** — not installed during development | Prompt prefix |
 
 Codex has no `--system-prompt` flag. It reads `AGENTS.md` from the project natively, which is why the contract file doubles as its instruction channel — and why `init` keeps it under 32 KB.

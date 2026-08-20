@@ -200,6 +200,19 @@ def _clip(text):
     return text
 
 
+def _is_codex_session_id(value):
+    """True only for something that could be a Codex session id.
+
+    The launcher records `pid:<n>` for a headless Codex role, because Codex has no
+    session id until its first rollout file lands. That placeholder is truthy, so a
+    naive `if session_id` check made the claim path unreachable and every Codex role
+    stayed unbound while its rollout showed up as an orphan.
+    """
+    if not value or not isinstance(value, str):
+        return False
+    return not value.startswith("pid:")
+
+
 def project_slug(cwd):
     """Claude transcript directory name: abs cwd with '/' and '.' -> '-'."""
     return os.path.abspath(cwd).replace("/", "-").replace(".", "-")
@@ -841,32 +854,48 @@ def collect_state(project, home=None):
         last_activity = None
 
         if runtime == "codex":
+            # A `pid:` placeholder is not a Codex session id; treat it as absent.
+            cx_short = short_id if _is_codex_session_id(short_id) else None
+            cx_full = full_id if _is_codex_session_id(full_id) else None
+
             rollout = None
             for idx, r in enumerate(rollouts):
                 if idx in used_rollouts:
                     continue
                 rid = r.get("session_id")
-                if rid and (rid == full_id or _short(rid) == (short_id or full_id)):
+                if rid and (rid == cx_full or _short(rid) == (cx_short or cx_full)):
                     rollout = r
                     used_rollouts.add(idx)
                     break
-            if rollout is None and not (short_id or full_id):
+            if rollout is None and not (cx_short or cx_full):
                 # Codex roles have no session id until the first rollout lands
                 # (INTERFACES s3). Claim the freshest unclaimed rollout for
                 # this project that started after the role did.
+                # Claim the unclaimed rollout for this project whose start is CLOSEST
+                # to the role's. A hard "must have started after the role" cutoff was
+                # too brittle: the rollout timestamp and the session file's timestamp
+                # come from different clocks and different moments, and a rollout that
+                # appeared slightly early left the role permanently unbound while its
+                # own output showed up as an orphan.
                 started = parse_ts(sf.get("started_at"))
+                best = None
                 for idx, r in enumerate(rollouts):
                     if idx in used_rollouts:
                         continue
                     r_start = r.get("started_at_epoch") or r.get("last_activity")
-                    if started and r_start and r_start + 60 < started:
-                        continue
-                    rollout = r
-                    used_rollouts.add(idx)
-                    break
+                    if started and r_start:
+                        delta = abs(r_start - started)
+                    else:
+                        delta = float("inf")
+                    if best is None or delta < best[0]:
+                        best = (delta, idx, r)
+                if best is not None:
+                    rollout = best[2]
+                    used_rollouts.add(best[1])
             if rollout is not None:
                 row["session_id"] = _short(rollout.get("session_id")) or row["session_id"]
                 row["last_text"] = rollout.get("last_text")
+                row["result_block"] = extract_result_block(rollout.get("last_text"))
                 row["error"] = rollout.get("error")
                 last_activity = rollout.get("last_activity")
                 states.append(_codex_state(rollout, row["pid"]))

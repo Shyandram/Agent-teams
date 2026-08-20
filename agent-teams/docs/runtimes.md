@@ -6,7 +6,7 @@ general can be Claude Code while workers run on Codex, or the reverse.
 | Runtime | Status | Role injection | Session listing |
 |---|---|---|---|
 | `claude-code` | Verified end to end | `--append-system-prompt-file` | `claude agents --json` |
-| `codex` | Integration verified; full write test blocked by a usage limit | Prompt prefix + native `AGENTS.md` | rollout JSONL scan |
+| `codex` | Verified end to end | Prompt prefix + native `AGENTS.md` | rollout JSONL scan |
 | `pi` | **Untested** | Prompt prefix | none |
 
 ## Cross-runtime teams

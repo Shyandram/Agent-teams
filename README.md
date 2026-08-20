@@ -129,7 +129,7 @@ that is still working.
 | Runtime | | |
 |---|---|---|
 | `claude-code` | **verified** | Launch, status, tmux takeover, stop, monitor exercised against live sessions |
-| `codex` | **partial** | Integration verified; a full end-to-end write was blocked by a usage limit |
+| `codex` | **verified** | Launch, file writes, role binding, monitor and close exercised against live sessions |
 | `pi` | **untested** | Not installed during development — the adapter has never been run |
 
 ## Documentation

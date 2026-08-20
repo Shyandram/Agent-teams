@@ -90,21 +90,27 @@ so one collector serves all three.
 - **Must redirect stdin**: without `< /dev/null` it prints
   `Reading additional input from stdin...` and waits. Every spawn needs `< /dev/null`.
 
-### Not verified — quota exhausted
+### Verified end to end (2026-08-20, after the quota reset)
 
-The end-to-end write could not be confirmed; the account hit its limit mid-spike:
+`codex exec --json -s workspace-write --skip-git-repo-check -C <dir> -o <file>` wrote the
+requested file and exited 0. Event stream:
 
-```json
-{"type":"error","message":"You've hit your usage limit. … try again at 11:39 AM."}
-{"type":"turn.failed","error":{"message":"You've hit your usage limit. …"}}
+```
+thread.started · turn.started · item.started · item.completed x3 · turn.completed
 ```
 
-Integration is proven (CLI ran, flags accepted, JSONL emitted); only the file write is
-unconfirmed. **Re-run verification step 3 after the quota resets.**
+Note `item.started` / `item.completed` — absent from the first round, which only saw the
+failure path. Any state mapping must tolerate unrecognised event types rather than
+assuming the set is closed.
 
-**This is itself a finding:** quota exhaustion is a real, silent fleet-failure mode. The
-monitor MUST surface `type:"error"` and `turn.failed` from Codex rollouts as a distinct
-"errored" state — otherwise a quota-dead role looks merely idle.
+Then through the skill: a `codex` role launched with `agent-teams launch`, produced a
+correct coordination note with valid frontmatter (`status: complete`), emitted a
+`<result>` block, and was bound to its role by the monitor. `close` reported it in the
+closeout table. Two bugs were found doing this and are fixed — see below.
+
+**The earlier quota failure remains a finding in its own right:** exhaustion is a silent
+fleet-failure mode, and the monitor must surface `type:"error"` / `turn.failed` as a
+distinct `errored` state or a quota-dead role reads as merely idle.
 
 ## Findings from end-to-end testing (second round)
 
@@ -210,3 +216,25 @@ like `at__proj_`. Strip the newline with `printf '%s'` before translating.
 | Per-role permission config suffices | Trust gates it first | Add trust precheck to `doctor` + `launch` |
 | Codex verifiable now | Quota-limited | Defer step 3; add "errored" state |
 | `timeout` available | macOS lacks it | Poll instead |
+
+## Findings from the Codex verification round
+
+### A `pid:` placeholder is truthy, and that made Codex roles unbindable
+
+The launcher records `session_id: "pid:<n>"` for a headless Codex role, because Codex has
+no session id until its first rollout file lands. The monitor's claim path was guarded by
+`if rollout is None and not (short_id or full_id)` — and the placeholder is truthy, so the
+guard never opened. Every Codex role stayed `unknown` while its own rollout appeared
+beside it as an unmanaged orphan. Fixed with an explicit `_is_codex_session_id()` that
+treats a `pid:` value as absent.
+
+### "Started after the role did" is too brittle to match a rollout
+
+The fallback also skipped any rollout whose start was more than 60s before the role's
+recorded `started_at`. Observed in practice: the rollout began **67 seconds before** the
+session file's timestamp — the two come from different clocks and different moments. The
+hard cutoff left the role permanently unbound. Replaced with nearest-match: claim the
+unclaimed rollout for this project whose start is closest to the role's.
+
+Both bugs share a shape worth remembering: a placeholder that is truthy, and a threshold
+that assumed two clocks agree.
