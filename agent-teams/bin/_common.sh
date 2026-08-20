@@ -128,7 +128,7 @@ at_check_placeholders() {
 }
 
 # ---------- team.yaml reader (no yq dependency) ----------
-# Emits 8 fields separated by US (\037), NOT tab.
+# Emits 9 fields separated by US (\037), NOT tab.
 #
 # Tab is IFS-*whitespace*, so bash `read` collapses runs of tabs and silently drops
 # empty fields — an empty `model` would shift `base_role` into its place. US is not
@@ -189,6 +189,40 @@ at_team_scalar() {
       print s; exit
     }
   ' "$1" 2>/dev/null
+}
+
+# Read a field from one named role instance without changing the stable
+# at_team_roles stream.  The stream is consumed by many older commands; session
+# ownership is deliberately an orthogonal concern so those consumers remain
+# compatible.
+at_team_role_field() {
+  local f="$1" wanted="$2" key="$3"
+  awk -v wanted="$wanted" -v key="$key" '
+    function val(s) { sub(/^[^:]*:[[:space:]]*/, "", s); gsub(/^['"'"']|['"'"'][[:space:]]*$/, "", s); sub(/[[:space:]]*#.*$/, "", s); gsub(/[[:space:]]+$/, "", s); return s }
+    /^[[:space:]]*-[[:space:]]*name:/ {
+      cur = val($0) == wanted
+      next
+    }
+    cur && $0 ~ "^[[:space:]]*" key ":" { print val($0); exit }
+  ' "$f"
+}
+
+# Return the runtime session owner for a role.  A role marked session:true owns
+# itself; otherwise parent points at the owner.  The top-level general remains
+# the backwards-compatible fallback for manifests created before this schema.
+at_team_session_owner() {
+  local f="$1" role="$2" current="$2" parent session general i
+  general="$(at_team_scalar "$f" general)"
+  for i in 1 2 3 4 5 6 7 8; do
+    session="$(at_team_role_field "$f" "$current" session)"
+    [ "$session" = "true" ] || [ "$current" = "$general" ] && { printf '%s' "$current"; return 0; }
+    parent="$(at_team_role_field "$f" "$current" parent)"
+    [ -n "$parent" ] || { printf '%s' "$current"; return 0; }
+    [ "$parent" = "$current" ] && { printf '%s' "$current"; return 0; }
+    current="$parent"
+  done
+  at_warn "session ownership chain for '$role' is deeper than 8; treating '$current' as owner"
+  printf '%s' "$current"
 }
 
 # ---------- model selection ----------

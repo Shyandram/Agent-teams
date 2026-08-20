@@ -31,7 +31,7 @@ So:
 |---|---|---|
 | Use when | The user is sitting at an interactive session now | Work must run in the background, over SSH, or across runtimes |
 | Runtimes | Claude Code only | Claude Code + Codex + pi |
-| Spawning | Claude calls the Agent tool with a name | One OS process per role |
+| Spawning | Claude calls the Agent tool with a name | One OS process per session owner; child roles are delegated subagents |
 | Comms | `SendMessage` mailbox + shared task list | Coordination notes on disk |
 | Survives disconnect | Only with `--layout tmux` | Yes |
 
@@ -113,16 +113,21 @@ agent-teams launch --layout tmux
 agent-teams monitor           # then open http://localhost:8787
 ```
 
-## Cross-runtime teams and the "general"
+## Session owners and the "general"
 
-Runtime is per role, so one team spans CLIs. The **general** is the session *you* occupy — it delegates and is not spawned as a worker.
+Runtime is assigned to session owners, so one team can span CLIs. The **general** owns
+the session for a main task. Child roles use `parent: <owner>` and are delegated inside
+that session; they do not create additional top-level runtime sessions.
 
 ```bash
 agent-teams init --kind app-dev --general lead \
     --runtime claude-code --runtime-for qa=codex --runtime-for devops=codex
 ```
 
-`launch` skips the general by default; `--include-general` spawns it too. If `--general` is omitted it defaults to `lead`, falling back to the first role when the team has no `lead`. Reassign later by editing `.agent-teams/team.yaml` — no re-init.
+The generated manifest marks the owner with `session: true` and children with
+`session: false`. If `--general` is omitted it defaults to `lead`, falling back to the
+first role when the team has no `lead`. Reassign later by editing `.agent-teams/team.yaml`
+— no re-init.
 
 ## Four failure modes you must prevent
 
@@ -187,7 +192,9 @@ Content comes from the session transcript at `~/.claude/projects/<slug>/<session
 
 ## tmux
 
-Optional everywhere. Without it, `--layout bg` works fine. With it, `--layout tmux` gives one interactive session per role that survives SSH disconnect and can be taken over by hand — the thing background agents cannot offer. The dashboard is for watching; tmux is for intervening.
+Optional everywhere. Without it, `--layout bg` works fine. With it, `--layout tmux` gives
+one interactive session per session owner that survives SSH disconnect and can be taken
+over by hand. The dashboard is for watching; tmux is for intervening.
 
 ## Reference
 

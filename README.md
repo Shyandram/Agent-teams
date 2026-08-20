@@ -65,7 +65,7 @@ format, so one directory serves both. Symlinks by default, so edits apply everyw
 ```bash
 agent-teams init --kind app-dev     # AGENTS.md, AIM.md, roles, permission allowlist
 agent-teams doctor                  # runtimes, auth, tmux, workspace trust
-agent-teams launch --layout tmux    # start the workers
+agent-teams launch --layout tmux    # start one session per main-task general
 agent-teams monitor                 # dashboard on 127.0.0.1:8787
 ```
 
@@ -95,9 +95,24 @@ agent-teams init --roles "lead,qa" \
 Squads decide internally without the lead, and are told *not* to converge on each other —
 if every squad lands on the same approach, the parallelism bought nothing.
 
-Presets are deliberately small (`solo` 1, `app-dev` 3, `research` 4), with `-wide`
-variants for work that genuinely parallelises. Every role is another full context to pay
-for and another thing that can wedge.
+Presets describe the roles available to a main-task general. The general owns the runtime
+session; research, engineering, QA, and other child roles are delegated inside it. This
+means adding a role does not automatically create another top-level session. Use separate
+session owners only for genuinely independent main tasks.
+
+The generated manifest makes the relationship explicit:
+
+```yaml
+- name: lead
+  general: true
+  session: true
+- name: research
+  parent: lead
+  session: false
+```
+
+Only `lead` creates a runtime session. `research` keeps its own role prompt and can open
+further subagents when the general delegates work to it.
 
 ## Four ways a fleet dies quietly
 

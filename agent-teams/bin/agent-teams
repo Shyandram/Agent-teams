@@ -415,7 +415,7 @@ EOF
     done
 
     {
-      printf '  - name: %s\n' "$r"
+    printf '  - name: %s\n' "$r"
       [ "$r" != "$base" ] && printf '    role: %s\n' "$base"
       [ -n "$focus" ] && printf '    focus: %s\n' "$focus"
       [ -n "$squad" ] && printf '    group: %s\n' "$squad"
@@ -423,15 +423,33 @@ EOF
       printf '    model_tier: %s\n' "$tier"
       printf '    permission_mode: %s\n' "$perm"
       printf '    sandbox: %s\n' "$sandbox"
-      [ "$r" = "$general_role" ] && printf '    general: true\n'
+      if [ "$r" = "$general_role" ]; then
+        printf '    general: true\n'
+        printf '    session: true\n'
+      else
+        printf '    parent: %s\n' "$general_role"
+        printf '    session: false\n'
+      fi
     } >>"$project/.agent-teams/team.yaml"
+  done <<EOF
+$instances
+EOF
+
+  # Role instances are subagents of the general's session.  Keep the generated
+  # definitions private to that session; they are not independently launchable.
+  mkdir -p "$project/.agent-teams/subagents/$general_role"
+  while IFS=$'\t' read -r r base; do
+    [ -n "$r" ] || continue
+    [ "$r" = "$general_role" ] && continue
+    cp "$project/.claude/agents/$r.md" \
+       "$project/.agent-teams/subagents/$general_role/$r.md"
   done <<EOF
 $instances
 EOF
   at_ok ".claude/agents/ ($n_roles role instances)"
   if [ "$n_roles" -gt 6 ]; then
-    at_warn "$n_roles roles is a lot: each is a full context, and they all read each"
-    at_say "      other's notes. Drop any you do not need with: agent-teams team remove <role>"
+    at_warn "$n_roles role definitions is a lot: keep only roles the main-task general needs"
+    at_say "      Each child is cheaper than a session, but still consumes context when delegated."
   fi
   at_ok ".agent-teams/team.yaml"
 
@@ -647,17 +665,17 @@ agent-teams launch — start the team
   --mode native   Print the spawn recipe for an interactive Claude session.
                   Native teammates CANNOT be spawned headlessly, so this mode
                   prepares and instructs; it does not fork processes.
-  --mode bg       Detached fleet: one worker per role. (default)
+  --mode bg       Detached sessions: one session per main-task general. (default)
 
   --layout bg     Headless background sessions + log files. (default)
-  --layout tmux   One interactive session per role in its own tmux window.
+  --layout tmux   One interactive session per main-task general in its own tmux window.
                   Survives SSH disconnect; you can take a role over by hand.
 
   --only a,b          Launch a subset of roles
-  --task "..."        Shared opening task for every role
-  --include-general   Also launch the general as a worker. By default it is
-                      skipped, because the general is the session YOU are in —
-                      it delegates to the others rather than being one of them.
+  --task "..."        Shared opening task for every session owner
+  --include-general   Launch the general in native mode as a detached session.
+                      Child roles are subagents inside that session and never
+                      create sessions of their own.
   --model-for R=M     Override one role's model, this launch only
   --tier-for  R=T     Override one role's tier, this launch only
                       (smol | regular | smart | ultra — see `agent-teams model`)
@@ -717,9 +735,24 @@ Use --layout bg, or install tmux (apt install tmux / brew install tmux)." ;;
   local started=0 failed=0 skipped_general=0
   while IFS=$'\037' read -r role runtime tier perm sandbox rolemodel baserole focus squad; do
     [ -n "$role" ] || continue
-    if [ -n "$only" ] && ! printf ',%s,' "$only" | grep -q ",$role,"; then continue; fi
-    # The general is the seat you occupy, not a worker to spawn.
-    if [ -n "$general" ] && [ "$role" = "$general" ] && [ "$include_general" -ne 1 ] && [ -z "$only" ]; then
+    local owner
+    owner="$(at_team_session_owner "$ty" "$role")"
+    if [ -n "$only" ]; then
+      local wanted_owner=0 requested requested_owner
+      for requested in $(printf '%s' "$only" | tr ',' ' '); do
+        requested_owner="$(at_team_session_owner "$ty" "$requested")"
+        [ "$requested_owner" = "$role" ] && wanted_owner=1
+      done
+      [ "$wanted_owner" -eq 1 ] || continue
+    fi
+    # Non-owner roles are named subagents in their owner's session.  They never
+    # receive a runtime process of their own, even when --only names them.
+    if [ "$owner" != "$role" ]; then
+      continue
+    fi
+    # The general is the interactive seat in native mode.  Detached mode launches
+    # the single owner session unless --include-general is omitted for compatibility.
+    if [ -n "$general" ] && [ "$role" = "$general" ] && [ "$include_general" -ne 1 ] && [ "$mode" = "native" ]; then
       skipped_general=1
       continue
     fi
@@ -786,7 +819,7 @@ EOF
 
   at_say "${AT_BOLD}$started worker(s) started${AT_RESET}${failed:+, $failed failed}"
   if [ "$skipped_general" -eq 1 ]; then
-    at_say "  ${AT_DIM}general '$general' not spawned — that is this session. Use --include-general to spawn it too.${AT_RESET}"
+      at_say "  ${AT_DIM}general '$general' not spawned in native mode — that is this session. Use --include-general to launch it detached.${AT_RESET}"
   fi
   if [ "$layout" = "tmux" ]; then
     at_say "  tmux attach -t $tmux_sess"
@@ -814,9 +847,9 @@ launch_native() {
   at_say "${AT_BOLD}2.${AT_RESET} Paste this prompt:"
   at_say ""
   at_say "${AT_CYAN}   Read AGENTS.md and docs/coordination/README.md first."
-  at_say "   Then spawn one teammate per role using these agent types:"
+  at_say "   Use the general as the main-task owner and delegate these child roles as needed:"
   at_team_roles "$ty" | while IFS=$'\037' read -r role _rt _tier _p _s _m _b _f _g; do
-    [ -n "$role" ] && at_say "     - $role"
+    [ -n "$role" ] && [ "$role" != "$(at_team_scalar "$ty" general)" ] && at_say "     - $role"
   done
   at_say ""
   at_say "   Each teammate must create its coordination note before doing any work."
@@ -887,7 +920,10 @@ EOF
       at_team_roles "$ty" | while IFS=$'\037' read -r r rt tier perm sandbox pin base focus group; do
         [ -n "$r" ] || continue
         local rf parent="" model
-        rf="$(at_role_file "$r" 2>/dev/null)" && parent="$(at_role_field "$rf" extends)"
+        parent="$(at_team_role_field "$ty" "$r" parent)"
+        if [ -z "$parent" ]; then
+          rf="$(at_role_file "$r" 2>/dev/null)" && parent="$(at_role_field "$rf" extends)"
+        fi
         model="$(at_resolve_model "$r" "$tier" "$pin" "$rt" "" "")"
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$r" "$rt" "$tier" "${model:-default}" "$parent" "$group" >>"$rowsf"
       done
@@ -989,6 +1025,8 @@ PY
         printf '    model_tier: %s\n' "$(at_role_field "$rf" model_tier)"
         printf '    permission_mode: %s\n' "$(at_role_field "$rf" permission_mode)"
         printf '    sandbox: %s\n' "$(at_role_field "$rf" sandbox)"
+        printf '    parent: %s\n' "$(at_team_scalar "$ty" general)"
+        printf '    session: false\n'
       } >>"$ty"
       at_ok "added $role"
       [ -f "$project/.agent-teams/prompts/$role.txt" ] \

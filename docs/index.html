@@ -266,13 +266,14 @@ code{font-family:var(--mono); font-size:.87em; color:var(--ink)}
       <p class="cap"><i>Mode B</i><span class="dim">— detached fleet, all runtimes, the default</span></p>
 <pre class="cmd">agent-teams launch --layout bg     <span class="c"># background + logs</span>
 agent-teams launch --layout tmux   <span class="c"># interactive windows</span></pre>
-      <p class="lede">One OS process per role, so Claude Code, Codex and pi roles sit in one team. <code>--layout tmux</code> is the one worth knowing: each role runs in its own window of a detached session, so the fleet survives SSH disconnect — and you can take a role over mid-flight.</p>
+      <p class="lede">One OS process per main-task general, so Claude Code, Codex and pi can host independent sessions in one team. The general owns the session; research, engineering and QA roles are delegated subagents inside it. <code>--layout tmux</code> keeps each main-task session alive across SSH disconnects, so you can take one over mid-flight.</p>
     </div>
   </div>
 
   <div class="stack">
-<pre class="cmd">agent-teams attach engineering   <span class="c"># drop into that role's window and type at it</span></pre>
+<pre class="cmd">agent-teams attach lead   <span class="c"># drop into the main-task session and type at it</span></pre>
     <p class="pt">Both modes share the same role library, the same <code>AGENTS.md</code>, and the same coordination protocol. They are the interactive and the detached form of one team, not two products.</p>
+    <p class="pt"><strong>One session, many roles.</strong> The generated manifest marks the main-task general with <code>session: true</code> and attaches child roles with <code>parent: lead</code>. Only the general creates a runtime session; a child role can delegate further subagents without multiplying top-level sessions.</p>
   </div>
 </div>
 

@@ -54,15 +54,20 @@
 version: 1
 project_name: {{PROJECT_NAME}}
 default_runtime: claude-code
+general: lead
 roles:
   - name: lead
     runtime: claude-code
     model_tier: smart
     permission_mode: acceptEdits
+    general: true
+    session: true
   - name: research
     runtime: codex
     model_tier: regular
     sandbox: workspace-write
+    parent: lead
+    session: false
   # Add roles below, two-space indented, one "- name:" per role.
   # Each name must have a matching definition in .claude/agents/<name>.md.
   #

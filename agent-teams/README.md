@@ -53,8 +53,9 @@ Then open <http://localhost:8787>.
 
 ## Mixed-runtime teams
 
-Runtimes are assigned **per role**, so one team can span CLIs. Whichever CLI you are
-sitting in is the **general** — it delegates, and is not spawned as a worker.
+Runtimes are assigned to session owners, so one team can span CLIs. The **general** owns
+the session for a main task; child roles are delegated subagents associated with that
+session rather than additional top-level workers.
 
 ```bash
 agent-teams init --kind app-dev --general lead \
@@ -63,9 +64,8 @@ agent-teams init --kind app-dev --general lead \
     --runtime-for devops=codex
 ```
 
-That gives a `lead` general in Claude Code, `engineering` and `ux` in Claude Code, and
-`qa` + `devops` in Codex. Flip `--runtime codex` to make Codex the default and Claude
-Code the exception.
+That gives a `lead` session owner in Claude Code with `engineering` and `ux` as child
+roles. Use separate session owners when the main tasks themselves must run independently.
 
 Change your mind later by editing `.agent-teams/team.yaml` — no re-init needed.
 
@@ -93,12 +93,12 @@ agent-teams launch --layout bg      # background sessions + logs
 agent-teams launch --layout tmux    # interactive sessions you can take over
 ```
 
-`--layout tmux` is the one worth knowing: each role runs an interactive session in its
-own tmux window, so the fleet **survives SSH disconnect** and you can drop into any role
-and type at it:
+`--layout tmux` is the one worth knowing: each session owner runs an interactive session
+in its own tmux window, so the fleet **survives SSH disconnect** and you can drop into a
+main task and type at it:
 
 ```bash
-agent-teams attach engineering
+agent-teams attach lead
 ```
 
 ---
@@ -246,10 +246,11 @@ Extras: `translation` · `legal` · `simulation` · `product-marketing`
 | `research-wide` | + research:survey/data, analysis:primary/ablation, engineering, verification | 8 |
 | `full-stack` | + ux, devops, verification, product-marketing, legal | 9 |
 
-**Defaults are small on purpose.** Every role is another full context to pay for, another
-note for the others to read, and another thing that can wedge. Start minimal and add when
-a gap actually appears — `agent-teams team add <role>` takes seconds. `init` warns above
-six roles.
+**Sessions follow main tasks.** The general owns the runtime session for a main task;
+research, engineering, QA, and other child roles are delegated subagents in that
+session. Add a child role when a gap appears rather than creating another top-level
+session. `init` warns above six role definitions because delegated context still costs
+attention even though it does not create another process.
 
 Custom teams: `--roles lead,engineering,legal`. Add your own by dropping a file into
 `roles/` — see `roles/README.md` for the format.
@@ -465,9 +466,10 @@ agent-teams init --kind research \
 - `--focus-for` gives each its own slice; the `research`/`app-dev` presets ship sensible
   defaults so two instances never start with identical briefs
 
-Each instance is a first-class role: its own prompt, inbox, session, logs and coordination
-note. Its prompt says which slice is its own and tells it to message the others rather
-than duplicate their work.
+Each instance remains a first-class role prompt and coordination identity, but only a
+session owner has its own runtime session and session log. Child roles are associated with
+their owner; their prompts say which slice is theirs and tell them to message others
+rather than duplicate work.
 
 ## Squads: small groups owning one direction
 

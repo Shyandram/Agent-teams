@@ -13,7 +13,7 @@ use the native mechanism at all — hence Mode B.
 |---|---|---|
 | Use when | You are at an interactive session now | Background, over SSH, or cross-runtime |
 | Runtimes | Claude Code only | Claude Code + Codex + pi |
-| Spawning | Claude calls the Agent tool with a name | One OS process per role |
+| Spawning | Claude calls the Agent tool with a name | One OS process per session owner; child roles are delegated subagents |
 | Comms | `SendMessage` mailbox + shared task list | Coordination notes on disk |
 | Survives disconnect | Only with `--teammate-mode tmux` | Yes |
 | Monitoring | Native agent panel, plus this dashboard | This dashboard |
@@ -51,11 +51,11 @@ agent-teams launch --layout tmux    # interactive, takeover-able
 `--layout bg` uses `claude --bg` and `codex exec --json`. Nothing to attach to; observe
 through the dashboard and logs.
 
-`--layout tmux` runs one interactive session per role in its own window of a detached
+`--layout tmux` runs one interactive session per session owner in its own window of a detached
 tmux session. This is the only configuration that lets you **take a role over mid-flight**:
 
 ```bash
-agent-teams attach engineering
+agent-teams attach lead
 ```
 
 Coordination notes are the durable channel in both layouts — deliberately, because the

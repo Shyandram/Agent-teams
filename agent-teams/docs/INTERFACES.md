@@ -35,7 +35,7 @@ Rules:
 version: 1
 project_name: acme
 default_runtime: claude-code    # claude-code | codex | pi
-general: lead                   # the role you occupy; launch skips it by default
+general: lead                   # backwards-compatible default session owner
 roles:
   - name: lead
     runtime: claude-code
@@ -43,11 +43,14 @@ roles:
     permission_mode: acceptEdits
     sandbox: workspace-write
     general: true               # marks the general; mirrors the top-level key
+    session: true               # only session owners create runtime sessions
   - name: research
     runtime: codex
     model_tier: regular
     permission_mode: acceptEdits
     sandbox: workspace-write
+    parent: lead                # role subagent attached to lead's session
+    session: false
 ```
 
 `init` emits every role with all four policy keys regardless of runtime; the launcher
@@ -73,13 +76,19 @@ That is what lets several instances of one role run at once (`research-lit` and
 `research-data` are both `research`), each with its own `focus`. `group` names the squad
 an instance belongs to.
 
+`session: true` marks a runtime-session owner. `parent: <name>` attaches a role to
+that owner's session as a named subagent. A child role has a prompt and role identity,
+but no `.agent-teams/sessions/<role>.json` and no runtime process of its own. Only
+session owners are launched. Legacy manifests without these keys retain one session per
+role.
+
 Model precedence is resolved in exactly one place, `at_resolve_model`, highest first:
 `--model-for` > `--tier-for` > `model:` > `AGENT_TEAMS_MODEL` > `model_tier`.
 `AGENT_TEAMS_MODEL_LOCK=1` promotes the env var above everything as a hard cap.
 Adapters' `map_tier` must stay a pure tier->model mapping and must not consult the
 environment, or precedence would be decided in two places.
 
-## 3. `.agent-teams/sessions/<role>.json` — runtime state (written by `launch`)
+## 3. `.agent-teams/sessions/<role>.json` — runtime state (written by `launch`, owners only)
 
 ```json
 {
@@ -108,7 +117,7 @@ environment, or precedence would be decided in two places.
 AGENTS.md                        # the contract; Codex reads this natively
 docs/coordination/README.md      # protocol
 docs/coordination/_template.md   # per-session note template
-.claude/agents/<role>.md         # Claude subagent definitions (Mode A + B)
+.claude/agents/<role>.md         # role definitions; children are session subagents
 .claude/settings.json            # permissions.allow / .deny for background roles
 .agent-teams/prompts/<role>.txt  # --append-system-prompt-file payload (Mode B)
 .agent-teams/team.yaml

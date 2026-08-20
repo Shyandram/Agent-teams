@@ -316,13 +316,13 @@ agent-teams launch [options]
 
 | Flag | Effect |
 |---|---|
-| `--mode bg` | Detached fleet, one worker per role **(default)** |
+| `--mode bg` | Detached sessions, one per session-owner general **(default)** |
 | `--mode native` | Print the spawn recipe for an interactive Claude session |
 | `--layout bg` | Headless sessions + log files **(default)** |
-| `--layout tmux` | One interactive session per role, in its own tmux window |
+| `--layout tmux` | One interactive session per session owner, in its own tmux window |
 | `--only a,b` | Launch a subset |
 | `--task "..."` | Shared opening task for every role |
-| `--include-general` | Also launch the general as a worker |
+| `--include-general` | Launch the general owner in native mode as a detached session |
 | `--model-for R=M` | Override one role's model, this launch only |
 | `--tier-for R=T` | Override one role's tier, this launch only |
 | `--force` | Launch even though `AIM.md` is still mostly unfilled |
@@ -350,8 +350,10 @@ happen without refusing.
 headlessly — verified, see [SPIKE-FINDINGS.md](SPIKE-FINDINGS.md). This mode prepares the
 environment and prints the prompt for you to paste into an interactive session.
 
-**The general is skipped by default** because the general is the session *you* are
-sitting in. It delegates to the others rather than being one of them.
+**Only session owners create runtime sessions.** The general owns one session and its
+role children are named subagents associated with that session. A child role may spawn
+further subagents, but it never creates a second top-level runtime session. This keeps
+one context per main task instead of multiplying sessions for every role.
 
 **`--layout bg` vs `--layout tmux`** — the choice that matters most:
 

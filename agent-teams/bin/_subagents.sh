@@ -5,7 +5,8 @@
 # general-purpose agent — nothing has to be defined for that to work, and `init`
 # defines nothing by default.
 #
-# What this file adds is OPTIONAL named specialists that belong to one role ALONE.
+# What this file adds is OPTIONAL named specialists that belong to one role ALONE,
+# plus the role subagents attached to a session owner by init.
 # They are not in the shared `.claude/agents/` namespace, so `research-lit` cannot see
 # `engineering`'s helpers and vice versa — two roles can even carry different
 # definitions under the same name without colliding. Enable with `init --subagents`.
@@ -92,6 +93,10 @@ if agents:
     sys.stdout.write(json.dumps(agents, separators=(",", ":")))
 PY
 }
+
+# Emit the role children that belong to a session owner.  init materializes these
+# definitions under the owner's private directory, so Claude receives one session
+# with named role subagents instead of one session per role.
 
 # Emitted into every role's prompt. No subagent needs to be pre-defined: the runtime
 # already provides a general-purpose one, so this is about WHEN to reach for it, not

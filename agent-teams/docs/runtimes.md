@@ -1,7 +1,8 @@
 # Runtimes
 
-One team can span CLIs. Runtime is a per-role setting in `.agent-teams/team.yaml`, so the
-general can be Claude Code while workers run on Codex, or the reverse.
+One team can span CLIs. Runtime is a per-session-owner setting in `.agent-teams/team.yaml`;
+the general owns the session and delegates child roles within it. Explicitly independent
+main-task generals may still use different runtimes.
 
 | Runtime | Status | Role injection | Session listing |
 |---|---|---|---|
@@ -18,14 +19,16 @@ agent-teams init --kind app-dev --general lead \
     --runtime-for devops=codex
 ```
 
-The **general** is the seat you occupy. `launch` skips it by default — you are already
-running it — and starts the rest. `--include-general` overrides that.
+The **general** is the session owner for the main task. Its child roles are attached as
+subagents and do not create separate runtime sessions. In detached mode, `launch` starts
+the owner session; in native mode, the interactive general session delegates through the
+runtime's agent mechanism.
 
 Change assignments later by editing `team.yaml`; no re-init needed.
 
 ### Why mix at all
 
-- **Different strengths per role.** Give implementation to one, review to another.
+- **Different strengths per child role.** Give implementation to one, review to another.
 - **Independent quotas.** When one provider rate-limits, the other roles keep working.
   A quota-dead role shows as `errored`, not `idle`.
 - **Whatever you are already sitting in can be the general.** The skill does not care
@@ -73,8 +76,9 @@ Codex has **no `--system-prompt` flag**. Two consequences shape the design:
    shared contract *is* its instruction channel — no glue needed. This is why `init`
    keeps `AGENTS.md` under 32 KB: Codex truncates past 32 KiB.
 
-Per-role policy is `sandbox` (`read-only` / `workspace-write` / `danger-full-access`).
-Every role needs `workspace-write` because every role must write a coordination note.
+Per-session-owner policy is `sandbox` (`read-only` / `workspace-write` /
+`danger-full-access`). Child role prompts retain their role-specific instructions and
+coordination identity inside the owner session.
 
 Headless spawns must redirect stdin from `/dev/null`, or `codex exec` waits on stdin.
 
