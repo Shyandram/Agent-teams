@@ -583,6 +583,10 @@ at_preset_focus() {
 }
 
 
+# A value-taking flag given as the last argument would otherwise hit `set -u` and
+# surface a raw "$2: unbound variable" instead of this tool's own error style.
+at_need_arg() { [ "$2" -ge 2 ] || at_die "$1 needs a value"; }
+
 # ---------- shell quoting ----------
 # Building a command string for `tmux new-window` by interpolating values into single
 # quotes breaks the moment a value contains an apostrophe — and a crafted value could

@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-teams</title>
+<meta name="description" content="Role-based agent teams across Claude Code, Codex, and pi — one contract, one dashboard, no infrastructure.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#f6f7f6; --raised:#ffffff; --ink:#101720; --ink-soft:#4a5560; --ink-faint:#78838d;
+  --rule:#dde1de; --rule-soft:#e9ece9;
+  --signal:#b3741f; --signal-bg:#fbf1e0;
+  --alarm:#a83a26; --alarm-bg:#fbeae6;
+  --calm:#256b67; --calm-bg:#e4f0ee;
+  --term-bg:#131a22; --term-ink:#c9d2da; --term-faint:#7d8994;
+  --shadow:0 1px 2px rgba(16,23,32,.05), 0 8px 24px -12px rgba(16,23,32,.18);
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --measure:68ch;
+}
+</style>
+<style>
+/* palette overrides for dark, written cleanly */
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0c1116; --raised:#131a21; --ink:#dee5ea; --ink-soft:#9aa6b1; --ink-faint:#6c7883;
+    --rule:#232d36; --rule-soft:#1b242c;
+    --signal:#e0a44e; --signal-bg:#2a2015;
+    --alarm:#e0715a; --alarm-bg:#2b1815;
+    --calm:#5ab3ac; --calm-bg:#12241f;
+    --term-bg:#080c11; --term-ink:#c9d2da; --term-faint:#6b7681;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0c1116; --raised:#131a21; --ink:#dee5ea; --ink-soft:#9aa6b1; --ink-faint:#6c7883;
+  --rule:#232d36; --rule-soft:#1b242c;
+  --signal:#e0a44e; --signal-bg:#2a2015;
+  --alarm:#e0715a; --alarm-bg:#2b1815;
+  --calm:#5ab3ac; --calm-bg:#12241f;
+  --term-bg:#080c11; --term-ink:#c9d2da; --term-faint:#6b7681;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--sans); font-size:17px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{width:min(100% - 2.5rem, 78rem); margin-inline:auto}
+.col{max-width:var(--measure)}
+
+a{color:inherit; text-decoration:none; border-bottom:1px solid var(--rule)}
+a:hover{border-bottom-color:var(--signal); color:var(--signal)}
+a:focus-visible{outline:2px solid var(--signal); outline-offset:3px; border-radius:2px}
+
+h1,h2,h3{font-family:var(--mono); font-weight:600; text-wrap:balance; margin:0; letter-spacing:-.02em}
+h2{font-size:1.45rem; margin-bottom:.35rem}
+h3{font-size:1.02rem; letter-spacing:0}
+p{margin:0}
+
+.eyebrow{
+  font-family:var(--mono); font-size:.72rem; text-transform:uppercase;
+  letter-spacing:.14em; color:var(--ink-faint);
+}
+
+/* ---------- masthead ---------- */
+header{border-bottom:1px solid var(--rule); background:var(--raised)}
+.mast{display:flex; align-items:baseline; gap:1rem; padding:1.1rem 0; flex-wrap:wrap}
+.logo{font-family:var(--mono); font-weight:600; font-size:1.05rem; letter-spacing:-.03em; border:0}
+.logo .dim{color:var(--ink-faint)}
+.mast nav{margin-left:auto; display:flex; gap:1.4rem; font-size:.86rem}
+.mast nav a{border:0; color:var(--ink-soft)}
+.mast nav a:hover{color:var(--signal)}
+
+/* ---------- hero ---------- */
+.hero{padding:4.5rem 0 3rem; display:grid; gap:3rem; grid-template-columns:1fr}
+@media(min-width:64rem){ .hero{grid-template-columns:minmax(0,25rem) minmax(0,1fr); align-items:start; gap:3.5rem} }
+.hero h1{font-size:clamp(1.9rem,1.2rem + 2.6vw,2.9rem); line-height:1.12; margin-bottom:1.1rem}
+.hero .lede{color:var(--ink-soft); font-size:1.06rem; margin-bottom:1.6rem}
+.hero .lede strong{color:var(--ink); font-weight:600}
+
+.cta{display:flex; gap:.6rem; flex-wrap:wrap; margin-bottom:1.4rem}
+.btn{
+  font-family:var(--mono); font-size:.86rem; padding:.55rem .95rem; border-radius:3px;
+  border:1px solid var(--ink); background:var(--ink); color:var(--paper);
+}
+.btn:hover{background:transparent; color:var(--ink); border-color:var(--ink)}
+.btn.ghost{background:transparent; color:var(--ink); border-color:var(--rule)}
+.btn.ghost:hover{border-color:var(--signal); color:var(--signal)}
+
+.meta{font-family:var(--mono); font-size:.78rem; color:var(--ink-faint); line-height:2}
+.meta b{color:var(--ink-soft); font-weight:500}
+
+/* ---------- terminal ---------- */
+.term{
+  background:var(--term-bg); border-radius:5px; box-shadow:var(--shadow);
+  overflow:hidden; border:1px solid rgba(255,255,255,.06);
+}
+.term .bar{
+  display:flex; align-items:center; gap:.5rem; padding:.5rem .8rem;
+  border-bottom:1px solid rgba(255,255,255,.07);
+}
+.term .bar span{font-family:var(--mono); font-size:.7rem; color:var(--term-faint)}
+.dot{width:9px;height:9px;border-radius:50%;background:#3a444e;flex:none}
+.term pre{
+  margin:0; padding:1rem 1.1rem 1.15rem; overflow-x:auto;
+  font-family:var(--mono); font-size:.78rem; line-height:1.85; color:var(--term-ink);
+  font-variant-numeric:tabular-nums;
+}
+.term .c{color:var(--term-faint)}
+.g-block{color:#e0a44e; font-weight:600}
+.g-err{color:#e0715a; font-weight:600}
+.g-work{color:#5ab3ac}
+.g-idle,.g-stop,.g-unk{color:var(--term-faint)}
+
+/* the one animated thing on the page, and it means something */
+.pulse{animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.42}}
+@media (prefers-reduced-motion:reduce){ .pulse{animation:none} }
+
+/* ---------- sections ---------- */
+section{padding:3.2rem 0; border-top:1px solid var(--rule-soft)}
+.sec-head{margin-bottom:1.6rem}
+.sec-head p{color:var(--ink-soft); margin-top:.5rem; max-width:var(--measure)}
+
+.grid{display:grid; gap:1px; background:var(--rule-soft); border:1px solid var(--rule-soft); border-radius:4px; overflow:hidden}
+@media(min-width:48rem){ .grid.two{grid-template-columns:1fr 1fr} }
+.cell{background:var(--paper); padding:1.3rem 1.4rem}
+.cell h3{margin-bottom:.5rem}
+.cell p{color:var(--ink-soft); font-size:.95rem}
+.cell .tag{font-family:var(--mono); font-size:.7rem; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.1em; display:block; margin-bottom:.6rem}
+
+/* state legend / failure list keyed by glyph */
+.states{list-style:none; padding:0; margin:0; display:grid; gap:.1rem}
+.states li{display:grid; grid-template-columns:1.6rem minmax(0,1fr); gap:.85rem; padding:.7rem 0; border-bottom:1px solid var(--rule-soft); align-items:baseline}
+.states li:last-child{border-bottom:0}
+.gl{font-family:var(--mono); font-weight:600; text-align:center; font-size:.95rem}
+.states .n{font-family:var(--mono); font-weight:600; font-size:.9rem}
+.states .d{color:var(--ink-soft); font-size:.93rem; display:block; margin-top:.15rem}
+
+.pill{display:inline-block; font-family:var(--mono); font-size:.68rem; padding:.12rem .45rem; border-radius:2px; letter-spacing:.04em; vertical-align:middle}
+.pill.s{background:var(--signal-bg); color:var(--signal)}
+.pill.a{background:var(--alarm-bg); color:var(--alarm)}
+.pill.c{background:var(--calm-bg); color:var(--calm)}
+
+code{font-family:var(--mono); font-size:.87em; background:var(--rule-soft); padding:.1em .35em; border-radius:2px}
+pre.code{
+  font-family:var(--mono); font-size:.8rem; line-height:1.8; background:var(--raised);
+  border:1px solid var(--rule); border-radius:4px; padding:.95rem 1.1rem; overflow-x:auto; margin:0;
+}
+pre.code .c{color:var(--ink-faint)}
+pre.code .k{color:var(--signal)}
+
+.stack{display:grid; gap:1rem}
+.flow{display:grid; gap:1rem}
+@media(min-width:52rem){ .flow{grid-template-columns:repeat(4,1fr)} }
+.step{border:1px solid var(--rule); border-radius:4px; padding:.9rem 1rem; background:var(--raised)}
+.step .num{font-family:var(--mono); font-size:.7rem; color:var(--ink-faint); letter-spacing:.1em}
+.step h3{font-size:.92rem; margin:.3rem 0 .3rem}
+.step p{font-size:.86rem; color:var(--ink-soft)}
+
+table{width:100%; border-collapse:collapse; font-size:.9rem}
+.tscroll{overflow-x:auto}
+th,td{text-align:left; padding:.6rem .7rem; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+th{font-family:var(--mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-faint); font-weight:500}
+td code{background:none; padding:0; color:var(--ink)}
+
+.note{border-left:2px solid var(--signal); padding:.15rem 0 .15rem 1rem; color:var(--ink-soft); font-size:.95rem}
+
+footer{border-top:1px solid var(--rule); padding:2.2rem 0 3rem; color:var(--ink-faint); font-size:.85rem}
+footer .row{display:flex; gap:1.2rem; flex-wrap:wrap; align-items:baseline}
+footer a{border:0; color:var(--ink-soft)}
+footer a:hover{color:var(--signal)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap mast">
+    <a class="logo" href="#top">agent<span class="dim">-</span>teams</a>
+    <nav>
+      <a href="#what">What</a>
+      <a href="#modes">Modes</a>
+      <a href="#wedge">Failure modes</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/Shyandram/Agent-teams">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+<div class="wrap">
+
+  <div class="hero">
+    <div>
+      <p class="eyebrow">Multi-agent orchestration</p>
+      <h1>Run a team of agents. See which one is stuck.</h1>
+      <p class="lede">Role-based agent teams across <strong>Claude Code</strong>, <strong>Codex</strong>, and <strong>pi</strong> — one shared contract, one dashboard, and no infrastructure to stand up.</p>
+      <div class="cta">
+        <a class="btn" href="#install">Install</a>
+        <a class="btn ghost" href="https://github.com/Shyandram/Agent-teams">Source</a>
+      </div>
+      <p class="meta">
+        <b>50 files</b> · bash + Python 3 stdlib<br>
+        <b>No</b> daemon, database, or container<br>
+        <b>One</b> symlink to install
+      </p>
+    </div>
+
+    <div class="term" role="img" aria-label="Terminal showing the agent-teams status table. Six roles across two runtimes; the engineering role is blocked on a permission prompt, the research role has errored on a quota limit.">
+      <div class="bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>agent-teams status</span></div>
+<pre>  shop  <span class="c">(~/projects/shop)</span>
+
+    ROLE             RUNTIME      STATE       IDLE    TOKENS  LAST
+  <span class="c">──────────────────────────────────────────────────────────────────────</span>
+<span class="g-block pulse">  !</span> engineering      claude-code  <span class="g-block">blocked</span>      4m    52,110  git add … &amp;&amp; git commit
+<span class="g-err">  x</span> research-lit     codex        <span class="g-err">errored</span>     11m    18,402  usage limit reached
+<span class="g-work">  &gt;</span> research-data    codex        <span class="g-work">working</span>      3s    31,887  validating licences
+<span class="g-idle">  -</span> qa               claude-code  idle        45s    12,004  <span class="c">42 passed</span>
+<span class="g-stop">  .</span> ux               claude-code  stopped       –     8,251  <span class="c">status: done</span>
+<span class="g-unk">  ?</span> devops           claude-code  unknown       –         –  <span class="c">not started</span>
+
+<span class="g-block">  ! 1 role BLOCKED on a permission prompt — it will not progress</span>
+<span class="g-block">      until a human acts:  engineering</span>
+</pre>
+    </div>
+  </div>
+
+  <section id="what">
+    <div class="sec-head col">
+      <p class="eyebrow">The problem</p>
+      <h2>A stalled agent looks exactly like a working one</h2>
+      <p>Run five agents in parallel and the hard part stops being the work — it becomes knowing which of them quietly stopped. An agent waiting on a permission prompt nobody can answer produces the same silence as one that is thinking.</p>
+    </div>
+
+    <ul class="states">
+      <li><span class="gl g-block">!</span><span><span class="n">blocked</span> <span class="pill s">needs you</span><span class="d">Waiting on a permission prompt. Never resolves on its own. This is the state the dashboard is loudest about, because it is the one that costs you an afternoon.</span></span></li>
+      <li><span class="gl g-err">x</span><span><span class="n">errored</span> <span class="pill a">needs you</span><span class="d">Quota exhausted, auth expired, or crashed. A rate-limited role stops producing output — from the outside, indistinguishable from having finished.</span></span></li>
+      <li><span class="gl g-work">&gt;</span><span><span class="n">working</span> <span class="pill c">healthy</span><span class="d">Actively producing. Transcript is moving.</span></span></li>
+      <li><span class="gl g-idle">-</span><span><span class="n">idle</span><span class="d">Alive, nothing in flight. Waiting for work or for a message.</span></span></li>
+      <li><span class="gl g-stop">.</span><span><span class="n">stopped</span><span class="d">Session ended. Its result block and token spend are still readable.</span></span></li>
+      <li><span class="gl g-unk">?</span><span><span class="n">unknown</span><span class="d">Declared in the team manifest but never started.</span></span></li>
+    </ul>
+  </section>
+
+  <section id="modes">
+    <div class="sec-head col">
+      <p class="eyebrow">Two modes</p>
+      <h2>Forced by a constraint, not a preference</h2>
+      <p>Native Claude Code teammates cannot be spawned headlessly — a <code>-p</code> session never spawns them. Anything that must survive an SSH disconnect or span runtimes needs a different mechanism, so there are two.</p>
+    </div>
+    <div class="grid two">
+      <div class="cell">
+        <span class="tag">Mode A · in-session</span>
+        <h3>Interactive, Claude Code only</h3>
+        <p>Native teammates with the built-in mailbox and shared task list. Requires a TTY and a human in front of it. The skill prepares the roles and hands you the spawn prompt — it never fabricates team config, because that file is runtime state.</p>
+      </div>
+      <div class="cell">
+        <span class="tag">Mode B · detached fleet</span>
+        <h3>Headless, all three runtimes</h3>
+        <p>One process per role. <code>--layout bg</code> is background sessions and log files; <code>--layout tmux</code> gives each role an interactive window that survives disconnect and can be taken over mid-flight. Coordination happens through files, so Codex and pi roles participate identically.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head col">
+      <p class="eyebrow">Composition</p>
+      <h2>Several instances, or several squads</h2>
+      <p>Parallelism only pays when instances own different work. A focus catalogue of 66 assignments across 11 roles attaches by suffix, so two researchers never start with the same brief.</p>
+    </div>
+    <div class="stack">
+<pre class="code"><span class="c"># three researchers and two analysts, each on a different slice</span>
+agent-teams init --kind research \
+  --roles <span class="k">"lead,research:survey,research:data,analysis:primary,analysis:ablation,qa"</span>
+
+<span class="c"># or two squads, each owning one direction end to end</span>
+agent-teams init --roles <span class="k">"lead,qa"</span> \
+  --squad <span class="k">"attn:research,analysis,engineering"</span> \
+  --squad <span class="k">"conv:research,analysis,engineering"</span></pre>
+      <p class="note">Squads decide internally without the lead, and are told <em>not</em> to converge on each other. If every squad lands on the same approach, the parallelism bought nothing.</p>
+    </div>
+  </section>
+
+  <section id="wedge">
+    <div class="sec-head col">
+      <p class="eyebrow">Honest part</p>
+      <h2>Four ways a fleet dies quietly</h2>
+      <p>All four were found by running real fleets, not by reading documentation. Each one looks like an agent that is still working.</p>
+    </div>
+    <div class="tscroll">
+    <table>
+      <thead><tr><th>What happens</th><th>Why</th><th>What the tool does</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Untrusted directory</b></td>
+          <td>A background session in a directory Claude Code has never been trusted in blocks on its first write — even with <code>acceptEdits</code>.</td>
+          <td><code>launch</code> refuses to start, rather than spawning agents that wedge. It never sets the trust flag for you; that is a security control.</td>
+        </tr>
+        <tr>
+          <td><b>Chained shell commands</b></td>
+          <td>Permission matching applies to the whole command, so <code>git add X &amp;&amp; git commit</code> matches neither an entry for <code>git add</code> nor one for <code>git commit</code>.</td>
+          <td>The contract tells roles to run one command per call. Allowlisting every compound form is unwinnable.</td>
+        </tr>
+        <tr>
+          <td><b>Quota exhaustion</b></td>
+          <td>A rate-limited role stops producing output, which from outside is identical to having finished the job.</td>
+          <td>Rendered as <span class="pill a">errored</span>, never as idle — and a hook can fire on it.</td>
+        </tr>
+        <tr>
+          <td><b>Work on a side branch</b></td>
+          <td>A background agent may relocate itself into a git worktree and commit there. Its commits are not in your working tree.</td>
+          <td><code>close</code> refuses to disband while commits sit in a worktree, and says which.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head col">
+      <p class="eyebrow">Shape of a run</p>
+      <h2>Four commands</h2>
+    </div>
+    <div class="flow">
+      <div class="step"><p class="num">FIRST</p><h3>init</h3><p>Writes <code>AIM.md</code>, the <code>AGENTS.md</code> contract, roles, and a permission allowlist.</p></div>
+      <div class="step"><p class="num">THEN</p><h3>doctor</h3><p>Runtimes, auth, tmux, and workspace trust. Fix anything red before launching.</p></div>
+      <div class="step"><p class="num">THEN</p><h3>launch</h3><p>Starts the workers. The general is the seat you occupy, so it is skipped.</p></div>
+      <div class="step"><p class="num">WHILE</p><h3>monitor</h3><p>Dashboard on loopback, reached through an SSH tunnel.</p></div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="sec-head col">
+      <p class="eyebrow">Install</p>
+      <h2>One symlink</h2>
+      <p>Claude Code and Codex read the same <code>SKILL.md</code> format, so one directory serves both. The CLI also works standalone by absolute path.</p>
+    </div>
+    <div class="stack">
+<pre class="code">git clone https://github.com/Shyandram/Agent-teams.git ~/skills/agent-teams
+bash ~/skills/agent-teams/agent-teams/install.sh
+
+<span class="c"># then, in a project</span>
+agent-teams init --kind app-dev
+agent-teams doctor
+agent-teams launch --layout tmux
+agent-teams monitor          <span class="c"># ssh -L 8787:localhost:8787 user@server</span></pre>
+      <p class="meta"><b>Requires</b> bash 3.2+, Python 3.8+ (stdlib only), and one of <code>claude</code> / <code>codex</code> / <code>pi</code>. tmux optional. Windows: SSH to the Linux host or use WSL.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head col">
+      <p class="eyebrow">Status</p>
+      <h2>What is verified, and what is not</h2>
+    </div>
+    <div class="tscroll">
+    <table>
+      <thead><tr><th>Runtime</th><th>State</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><code>claude-code</code></td><td><span class="pill c">verified</span></td><td>Launch, status, tmux takeover, stop and monitor exercised against live sessions.</td></tr>
+        <tr><td><code>codex</code></td><td><span class="pill s">partial</span></td><td>Integration verified — flags parsed, JSONL emitted. A full end-to-end write was blocked by a usage limit.</td></tr>
+        <tr><td><code>pi</code></td><td><span class="pill a">untested</span></td><td>pi was not installed during development. The adapter is written from source reading and has never been run.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+</div>
+</main>
+
+<footer>
+  <div class="wrap row">
+    <span>agent-teams</span>
+    <a href="https://github.com/Shyandram/Agent-teams">Repository</a>
+    <a href="https://github.com/Shyandram/Agent-teams/blob/main/agent-teams/docs/SPIKE-FINDINGS.md">Verified runtime behaviour</a>
+    <a href="https://github.com/Shyandram/Agent-teams/blob/main/agent-teams/docs/troubleshooting.md">Troubleshooting</a>
+    <span style="margin-left:auto">MIT</span>
+  </div>
+</footer>
+
+</body>
+</html>

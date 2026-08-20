@@ -73,23 +73,23 @@ cmd_init() {
 
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
-      --kind)           kind="$2"; kind_explicit=1; shift 2 ;;
-      --roles)          roles_csv="$2"; shift 2 ;;
-      --runtime)        default_runtime="$2"; shift 2 ;;
-      --runtime-for)    runtime_map="${runtime_map}${runtime_map:+,}$2"; shift 2 ;;
-      --general)        general_role="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
+      --kind)           at_need_arg "$1" $#; kind="$2"; kind_explicit=1; shift 2 ;;
+      --roles)          at_need_arg "$1" $#; roles_csv="$2"; shift 2 ;;
+      --runtime)        at_need_arg "$1" $#; default_runtime="$2"; shift 2 ;;
+      --runtime-for)    at_need_arg "$1" $#; runtime_map="${runtime_map}${runtime_map:+,}$2"; shift 2 ;;
+      --general)        at_need_arg "$1" $#; general_role="$2"; shift 2 ;;
       --no-reference-skills) ref_skills=0; shift ;;
       --subagents) subagents=1; shift ;;
-      --aim)   aim_kind="$2"; shift 2 ;;
-      --squad) squad_specs="${squad_specs}${squad_specs:+$(printf '\001')}$2"; shift 2 ;;
-      --focus-for) focus_map="${focus_map}${focus_map:+$(printf '\001')}$2"; shift 2 ;;
-      --name)           project_name="$2"; shift 2 ;;
-      --build-cmd)      build_cmd="$2"; shift 2 ;;
-      --test-cmd)       test_cmd="$2"; shift 2 ;;
-      --lint-cmd)       lint_cmd="$2"; shift 2 ;;
-      --language)       lang="$2"; shift 2 ;;
-      --timezone)       tz="$2"; shift 2 ;;
+      --aim)   at_need_arg "$1" $#; aim_kind="$2"; shift 2 ;;
+      --squad) at_need_arg "$1" $#; squad_specs="${squad_specs}${squad_specs:+$(printf '\001')}$2"; shift 2 ;;
+      --focus-for) at_need_arg "$1" $#; focus_map="${focus_map}${focus_map:+$(printf '\001')}$2"; shift 2 ;;
+      --name)           at_need_arg "$1" $#; project_name="$2"; shift 2 ;;
+      --build-cmd)      at_need_arg "$1" $#; build_cmd="$2"; shift 2 ;;
+      --test-cmd)       at_need_arg "$1" $#; test_cmd="$2"; shift 2 ;;
+      --lint-cmd)       at_need_arg "$1" $#; lint_cmd="$2"; shift 2 ;;
+      --language)       at_need_arg "$1" $#; lang="$2"; shift 2 ;;
+      --timezone)       at_need_arg "$1" $#; tz="$2"; shift 2 ;;
       --force)          force=1; shift ;;
       --dry-run)        dry=1; shift ;;
       -h|--help)
@@ -520,7 +520,7 @@ cmd_doctor() {
   local project="$PWD"
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       -h|--help) at_say "agent-teams doctor [-C PATH]"; return 0 ;;
       *) at_die "doctor: unknown option '$1'" ;;
     esac
@@ -609,11 +609,11 @@ cmd_launch() {
   local model_for="" tier_for=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
-      --mode)   mode="$2"; shift 2 ;;
-      --layout) layout="$2"; shift 2 ;;
-      --only)   only="$2"; shift 2 ;;
-      --task)   task="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
+      --mode)   at_need_arg "$1" $#; mode="$2"; shift 2 ;;
+      --layout) at_need_arg "$1" $#; layout="$2"; shift 2 ;;
+      --only)   at_need_arg "$1" $#; only="$2"; shift 2 ;;
+      --task)   at_need_arg "$1" $#; task="$2"; shift 2 ;;
       --model-for) model_for="${model_for}${model_for:+,}$2"; shift 2 ;;
       --tier-for)  tier_for="${tier_for}${tier_for:+,}$2"; shift 2 ;;
       --include-general) include_general=1; shift ;;
@@ -810,13 +810,13 @@ cmd_team() {
   local parent_set=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       add)    action="add";    role="${2:-}"; shift 2 2>/dev/null || shift $# ;;
       remove) action="remove"; role="${2:-}"; shift 2 2>/dev/null || shift $# ;;
       move)   action="move";   role="${2:-}"; shift 2 2>/dev/null || shift $# ;;
       show|tree) action="show"; shift ;;
-      --runtime) newrt="$2"; shift 2 ;;
-      --extends) newparent="$2"; parent_set=1; shift 2 ;;
+      --runtime) at_need_arg "$1" $#; newrt="$2"; shift 2 ;;
+      --extends) at_need_arg "$1" $#; newparent="$2"; parent_set=1; shift 2 ;;
       --general) make_general=1; shift ;;
       -h|--help)
         cat >&2 <<'EOF'
@@ -1083,11 +1083,11 @@ cmd_close() {
   local project="$PWD" force=0 dry=0 keep_wt=0 reason=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       --force) force=1; shift ;;
       --dry-run) dry=1; shift ;;
       --keep-worktrees) keep_wt=1; shift ;;
-      --reason) reason="$2"; shift 2 ;;
+      --reason) at_need_arg "$1" $#; reason="$2"; shift 2 ;;
       -h|--help)
         cat >&2 <<'EOF'
 agent-teams close — disband the team and write a closeout report
@@ -1318,7 +1318,7 @@ cmd_focus() {
   while [ $# -gt 0 ]; do
     case "$1" in
       list) show_all=1; shift ;;
-      -C|--project-dir) shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; at_resolve_project "$2" >/dev/null || exit 1; shift 2 ;;
       -h|--help)
         cat >&2 <<'EOF'
 agent-teams focus — assignments an instance of a role can own
@@ -1395,11 +1395,11 @@ cmd_role() {
   local project="$PWD" action="list" name="" parent="" add=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       new)     action="new"; name="${2:-}"; shift 2 2>/dev/null || shift $# ;;
       list)    action="list"; shift ;;
       show)    action="show"; name="${2:-}"; shift 2 2>/dev/null || shift $# ;;
-      --extends) parent="$2"; shift 2 ;;
+      --extends) at_need_arg "$1" $#; parent="$2"; shift 2 ;;
       --add)   add=1; shift ;;
       -h|--help)
         cat >&2 <<'EOF'
@@ -1568,8 +1568,8 @@ cmd_send() {
   local project="$PWD" from="${AGENT_TEAMS_ROLE:-human}" urgent=0 to="" text="" bcast=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
-      --from)   from="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
+      --from)   at_need_arg "$1" $#; from="$2"; shift 2 ;;
       --urgent) urgent=1; shift ;;
       --all)    bcast=1; shift ;;
       -h|--help)
@@ -1620,8 +1620,8 @@ cmd_steer() {
   local project="$PWD" from="${AGENT_TEAMS_ROLE:-human}" role="" text="" queue=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
-      --from)  from="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
+      --from)  at_need_arg "$1" $#; from="$2"; shift 2 ;;
       --queue) queue=1; shift ;;
       -h|--help)
         cat >&2 <<'EOF'
@@ -1666,7 +1666,7 @@ cmd_inbox() {
   local project="$PWD" role="" all="" fmt="" mark=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       --all)  all="--all"; shift ;;
       --json) fmt="--json"; shift ;;
       --mark-read) mark=1; shift ;;
@@ -1718,7 +1718,7 @@ cmd_model() {
   local project="$PWD" action="show" role="" value=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       set)   action="set"; role="${2:-}"; value="${3:-}"; shift 3 2>/dev/null || shift $# ;;
       reset) action="reset"; role="${2:-}"; shift 2 2>/dev/null || shift $# ;;
       -h|--help)
@@ -1857,7 +1857,7 @@ cmd_skills() {
   local project="$PWD" action="status" depth=1
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       --fetch)  action="fetch"; shift ;;
       --update) action="update"; shift ;;
       --remove) action="remove"; shift ;;
@@ -1951,7 +1951,7 @@ cmd_status() {
   local project="$PWD" as_json=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       --json) as_json=1; shift ;;
       -h|--help) at_say "agent-teams status [-C PATH] [--json]"; return 0 ;;
       *) at_die "status: unknown option '$1'" ;;
@@ -1979,10 +1979,10 @@ cmd_monitor() {
   local project="$PWD" port=8787 bind="127.0.0.1" refresh=2
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
-      --port)    port="$2"; shift 2 ;;
-      --bind)    bind="$2"; shift 2 ;;
-      --refresh) refresh="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
+      --port)    at_need_arg "$1" $#; port="$2"; shift 2 ;;
+      --bind)    at_need_arg "$1" $#; bind="$2"; shift 2 ;;
+      --refresh) at_need_arg "$1" $#; refresh="$2"; shift 2 ;;
       -h|--help)
         cat >&2 <<'EOF'
 agent-teams monitor — web dashboard over every role
@@ -2013,7 +2013,7 @@ cmd_attach() {
   local project="$PWD" role=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
       -h|--help) at_say "agent-teams attach [-C PATH] ROLE"; return 0 ;;
       -*) at_die "attach: unknown option '$1'" ;;
       *) role="$1"; shift ;;
@@ -2057,8 +2057,8 @@ cmd_stop() {
   local project="$PWD" only="" kill_flag=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      -C|--project-dir) project="$2"; shift 2 ;;
-      --only) only="$2"; shift 2 ;;
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
+      --only) at_need_arg "$1" $#; only="$2"; shift 2 ;;
       --kill) kill_flag="--kill"; shift ;;
       -h|--help) at_say "agent-teams stop [-C PATH] [--only a,b] [--kill]"; return 0 ;;
       *) at_die "stop: unknown option '$1'" ;;
