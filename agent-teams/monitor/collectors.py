@@ -200,6 +200,57 @@ def _clip(text):
     return text
 
 
+def scan_codex_log(project, log_rel):
+    """Find a Codex failure in the role's own log.
+
+    Verified: a failed turn does NOT appear in the rollout file. `~/.codex/sessions/
+    .../rollout-*.jsonl` carries `response_item` / `world_state` / `turn_context` /
+    `event_msg` — the `error` and `turn.failed` events are written to STDOUT by
+    `codex exec --json`, which the launcher captures into the role's log.
+
+    Reading only rollouts therefore made every Codex failure invisible, which is the
+    exact "a quota-dead role looks idle" failure this monitor exists to prevent.
+    """
+    if not log_rel:
+        return None
+    path = log_rel if os.path.isabs(log_rel) else os.path.join(project, log_rel)
+    if not os.path.exists(path):
+        return None
+    message = None
+    for line in read_tail_lines(path):
+        line = line.strip()
+        if not line or line[0] != "{":
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        t = rec.get("type")
+        if t == "error":
+            message = rec.get("message") or message
+        elif t == "turn.failed":
+            err = rec.get("error")
+            if isinstance(err, dict):
+                message = err.get("message") or message
+        elif t in ("turn.started", "turn.completed"):
+            # A later successful turn supersedes an earlier failure.
+            if t == "turn.completed":
+                message = None
+    if not message:
+        return None
+    # Codex nests a JSON error document inside the message string; surface the
+    # human-readable part rather than the wrapper.
+    try:
+        inner = json.loads(message)
+        message = ((inner.get("error") or {}).get("message")
+                   or inner.get("message") or message)
+    except Exception:
+        pass
+    return _clip(message)
+
+
 def _is_codex_session_id(value):
     """True only for something that could be a Codex session id.
 
@@ -416,7 +467,19 @@ def extract_result_block(text):
     last = matches[-1]
     block = last[0] or last[1]
     block = (block or "").strip()
-    return block[:MAX_TEXT_CHARS] if block else None
+    if not block:
+        return None
+    # The role prompt contains the literal template for this block, and a runtime that
+    # echoes its prompt would otherwise be reported as having produced a result it
+    # never wrote. Reject anything that is still the unfilled template.
+    flat = " ".join(block.lower().split())
+    for tell in ("done | blocked | partial",
+                 "one or two sentences on what is now true",
+                 "the exact next action, for whoever picks this up",
+                 "the command you ran and its actual outcome"):
+        if tell in flat:
+            return None
+    return block[:MAX_TEXT_CHARS]
 
 
 # ---------------------------------------------------------------------------
@@ -892,18 +955,29 @@ def collect_state(project, home=None):
                 if best is not None:
                     rollout = best[2]
                     used_rollouts.add(best[1])
+            # A Codex failure lives in the role's log, not its rollout.
+            log_error = scan_codex_log(project, sf.get("log"))
+
             if rollout is not None:
                 row["session_id"] = _short(rollout.get("session_id")) or row["session_id"]
                 row["last_text"] = rollout.get("last_text")
                 row["result_block"] = extract_result_block(rollout.get("last_text"))
-                row["error"] = rollout.get("error")
+                row["error"] = rollout.get("error") or log_error
                 last_activity = rollout.get("last_activity")
-                states.append(_codex_state(rollout, row["pid"]))
-                if rollout.get("error"):
+                if log_error:
+                    states.append("errored")
+                else:
+                    states.append(_codex_state(rollout, row["pid"]))
+                if row["error"]:
                     warnings.append("codex error for role %s: %s"
-                                    % (role, (rollout["error"] or "")[:160]))
+                                    % (role, (row["error"] or "")[:160]))
             elif sf:
-                states.append("stopped" if _pid_alive(row["pid"]) is False else "unknown")
+                if log_error:
+                    row["error"] = log_error
+                    states.append("errored")
+                    warnings.append("codex error for role %s: %s" % (role, log_error[:160]))
+                else:
+                    states.append("stopped" if _pid_alive(row["pid"]) is False else "unknown")
         else:
             agent = None
             for idx, a in enumerate(agents):
@@ -1088,12 +1162,15 @@ def render_table(state):
                 idle_s = "%dm" % int(idle // 60)
             else:
                 idle_s = "%dh" % int(idle // 3600)
-            last = (r.get("result_block") or r.get("last_text")
-                    or r.get("error") or "")
+            st = r.get("state") or "unknown"
+            if st in ("errored", "blocked") and r.get("error"):
+                last = r.get("error")            # the reason beats the chatter
+            else:
+                last = (r.get("result_block") or r.get("last_text")
+                        or r.get("error") or "")
             last = " ".join(last.split())
             if len(last) > 38:
                 last = last[:37] + "…"
-            st = r.get("state") or "unknown"
             tok = r.get("tokens_total") or 0
             tok_s = format(tok, ",") if tok else "-"
             out.append("  %-1s %-16s %-13s %-7s %-9s %8s %10s  %s"

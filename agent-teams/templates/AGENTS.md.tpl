@@ -120,8 +120,22 @@ Git is the record of what happened. Treat it as the deliverable, not as bookkeep
 - **Never commit secrets.** If a credential reaches a commit, stop, tell the user
   immediately, and treat the credential as compromised — removing it from history is not
   sufficient.
-- Work on a branch unless the user asked for a commit on the default branch. Push only
-  when asked.
+- **Every role owns exactly one branch: `agent/<role>`.** You may commit and push to it
+  freely, and you are expected to — small, self-describing commits pushed as you go, not
+  one silent batch at the end. Work that exists only on one machine is work nobody else
+  can see, review, or recover.
+- **You may push nothing else.** Not the default branch, not another role's branch, not a
+  shared integration branch. Read any branch you like; write only your own.
+- **Merging is not a role's decision.** When your branch is ready, say so in your
+  coordination note and name it in your result block. A human or the general decides what
+  gets integrated, and when.
+- Force-push, amend, rebase, and reset are denied outright on anything already pushed —
+  including your own branch, because another role may already have fetched it. If history
+  genuinely needs rewriting, stop and say so.
+
+  The permission allowlist cannot enforce the branch scope: prefix matching sees
+  `git push`, not which ref it targets. It blocks force-push and the obvious pushes to
+  the default branch, and the rest is this agreement. Treat it as binding.
 
 ---
 

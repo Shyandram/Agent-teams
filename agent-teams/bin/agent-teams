@@ -380,6 +380,7 @@ EOF
       at_role_body_resolved "$rf"
       at_focus_block "$r" "$base" "$focus"
       at_squad_block "$r" "$squad" "$(printf '%s' "$squad_map" | awk -F= -v g="$squad" '$2==g{printf "- %s\n",$1}')"
+      at_branch_block "$r"
       at_delegation_block "$project" "$r"
       at_result_block
       at_mailbox_block "$r"
@@ -391,6 +392,7 @@ EOF
       at_role_body_resolved "$rf"
       at_focus_block "$r" "$base" "$focus"
       at_squad_block "$r" "$squad" "$(printf '%s' "$squad_map" | awk -F= -v g="$squad" '$2==g{printf "- %s\n",$1}')"
+      at_branch_block "$r"
       at_delegation_block "$project" "$r"
       at_result_block
       at_mailbox_block "$r"
@@ -433,7 +435,7 @@ EOF
   if [ ! -f "$settings" ] || [ "$force" -eq 1 ]; then
     cat >"$settings" <<'JSON'
 {
-  "_comment": "Written by agent-teams init. These permissions let background roles run without blocking on a prompt nobody can answer. Review and trim to taste; anything not listed still prompts, and a prompting background agent shows as 'blocked' in the monitor.",
+  "_comment": "Written by agent-teams init. These permissions let background roles run without blocking on a prompt nobody can answer. Review and trim to taste; anything not listed still prompts, and a prompting background agent shows as 'blocked' in the monitor. NOTE: git push is ALLOWED so each role can publish its own branch. Prefix matching cannot scope a push to one branch, so the branch discipline lives in the contract and each role's prompt, not here; the deny list blocks force-push and the obvious pushes to main. If you do not want agents pushing at all, move Bash(git push:*) from allow to deny.",
   "permissions": {
     "allow": [
       "Bash(git status:*)",
@@ -443,6 +445,10 @@ EOF
       "Bash(git show:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git fetch:*)",
       "Bash(git worktree list:*)",
       "Bash(git rev-parse:*)",
       "Bash(ls:*)",
@@ -470,7 +476,13 @@ EOF
       "TodoWrite"
     ],
     "deny": [
-      "Bash(git push:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push --delete:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push origin master:*)",
+      "Bash(git push origin HEAD:main:*)",
       "Bash(git reset --hard:*)",
       "Bash(git clean:*)",
       "Bash(rm -rf:*)",
@@ -708,7 +720,7 @@ Use --layout bg, or install tmux (apt install tmux / brew install tmux)." ;;
 
     local resolved reason
     resolved="$(at_resolve_model "$role" "$tier" "$rolemodel" "$runtime" "$model_for" "$tier_for")"
-    reason="$(at_model_reason "$role" "$rolemodel" "$model_for" "$tier_for")"
+    reason="$(at_model_reason "$role" "$rolemodel" "$model_for" "$tier_for" "$runtime")"
 
     if [ "$dry" -eq 1 ]; then
       at_say "  would launch ${AT_BOLD}$role${AT_RESET} via $runtime (${layout}, ${resolved:-default} ${AT_DIM}via ${reason}${AT_RESET}, ${policy})"
@@ -1770,7 +1782,7 @@ EOF
         [ -n "$r" ] || continue
         local resolved reason
         resolved="$(at_resolve_model "$r" "$tier" "$pin" "$rt" "" "")"
-        reason="$(at_model_reason "$r" "$pin" "" "")"
+        reason="$(at_model_reason "$r" "$pin" "" "" "$rt")"
         printf '  %-16s %-13s %-9s %-14s %s%s%s\n' \
           "$r" "$rt" "$tier" "${resolved:-<provider default>}" "$AT_DIM" "$reason" "$AT_RESET" >&2
       done
