@@ -129,6 +129,10 @@ The generated manifest marks the owner with `session: true` and children with
 first role when the team has no `lead`. Reassign later by editing `.agent-teams/team.yaml`
 — no re-init.
 
+For research ideas, a child-general may be marked `session: true` with
+`approval: proposed`. The main general discusses and approves it by changing the value
+to `approved`; only then does the next launch create that child-general's session.
+
 ## Four failure modes you must prevent
 
 All observed empirically (`docs/SPIKE-FINDINGS.md`). Each is **silent**: the user sees agents that look alive but will never finish.

@@ -211,11 +211,18 @@ at_team_role_field() {
 # itself; otherwise parent points at the owner.  The top-level general remains
 # the backwards-compatible fallback for manifests created before this schema.
 at_team_session_owner() {
-  local f="$1" role="$2" current="$2" parent session general i
+  local f="$1" role="$2" current="$2" parent session approval general i
   general="$(at_team_scalar "$f" general)"
   for i in 1 2 3 4 5 6 7 8; do
     session="$(at_team_role_field "$f" "$current" session)"
-    [ "$session" = "true" ] || [ "$current" = "$general" ] && { printf '%s' "$current"; return 0; }
+    approval="$(at_team_role_field "$f" "$current" approval)"
+    # The main general is always a session owner. Other generals become owners
+    # only after the main general approves their idea. A missing approval key is
+    # accepted for backwards compatibility with older manifests.
+    if [ "$current" = "$general" ] \
+       || { [ "$session" = "true" ] && [ "$approval" != "proposed" ]; }; then
+      printf '%s' "$current"; return 0
+    fi
     parent="$(at_team_role_field "$f" "$current" parent)"
     [ -n "$parent" ] || { printf '%s' "$current"; return 0; }
     [ "$parent" = "$current" ] && { printf '%s' "$current"; return 0; }

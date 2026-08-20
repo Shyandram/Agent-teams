@@ -471,6 +471,22 @@ session owner has its own runtime session and session log. Child roles are assoc
 their owner; their prompts say which slice is theirs and tell them to message others
 rather than duplicate work.
 
+### Proposal and approval gate
+
+An idea-general can be proposed without starting a session:
+
+```yaml
+- name: idea1-general
+  parent: lead
+  session: true
+  approval: proposed
+```
+
+The main general reviews the idea and changes `approval` to `approved`. The next launch
+then starts that idea-general as a separate session. This lets one main general turn
+three approved ideas into three child-general sessions—four sessions total including the
+main general—while keeping unapproved ideas inside the main session.
+
 ## Squads: small groups owning one direction
 
 When several directions should be explored at once, give each its own group with thinking

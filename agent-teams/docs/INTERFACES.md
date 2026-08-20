@@ -44,6 +44,7 @@ roles:
     sandbox: workspace-write
     general: true               # marks the general; mirrors the top-level key
     session: true               # only session owners create runtime sessions
+    approval: approved          # approved by the main general
   - name: research
     runtime: codex
     model_tier: regular
@@ -51,6 +52,7 @@ roles:
     sandbox: workspace-write
     parent: lead                # role subagent attached to lead's session
     session: false
+    approval: approved
 ```
 
 `init` emits every role with all four policy keys regardless of runtime; the launcher
@@ -80,7 +82,10 @@ an instance belongs to.
 that owner's session as a named subagent. A child role has a prompt and role identity,
 but no `.agent-teams/sessions/<role>.json` and no runtime process of its own. Only
 session owners are launched. Legacy manifests without these keys retain one session per
-role.
+role. For a proposed idea-general, set `session: true` and `approval: proposed`; the
+main general changes it to `approval: approved` only after reviewing the idea. At that
+point the idea-general becomes a new session owner, while its own children remain
+subagents. Legacy manifests without `approval` retain their previous behavior.
 
 Model precedence is resolved in exactly one place, `at_resolve_model`, highest first:
 `--model-for` > `--tier-for` > `model:` > `AGENT_TEAMS_MODEL` > `model_tier`.

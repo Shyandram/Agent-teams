@@ -114,6 +114,19 @@ The generated manifest makes the relationship explicit:
 Only `lead` creates a runtime session. `research` keeps its own role prompt and can open
 further subagents when the general delegates work to it.
 
+For research branching, ideas can first be proposed as session-owning generals:
+
+```yaml
+- name: idea1-general
+  parent: lead
+  session: true
+  approval: proposed
+```
+
+The main general reviews the proposal. Changing `approval` to `approved` activates its
+session on the next launch. Three approved idea-generals plus the main general create
+four sessions; before approval, only the main general creates a session.
+
 ## Four ways a fleet dies quietly
 
 All found by running real fleets, not by reading documentation. Each looks like an agent

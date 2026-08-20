@@ -426,9 +426,11 @@ EOF
       if [ "$r" = "$general_role" ]; then
         printf '    general: true\n'
         printf '    session: true\n'
+        printf '    approval: approved\n'
       else
         printf '    parent: %s\n' "$general_role"
         printf '    session: false\n'
+        printf '    approval: approved\n'
       fi
     } >>"$project/.agent-teams/team.yaml"
   done <<EOF

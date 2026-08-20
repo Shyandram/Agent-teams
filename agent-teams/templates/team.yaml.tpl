@@ -62,12 +62,14 @@ roles:
     permission_mode: acceptEdits
     general: true
     session: true
+    approval: approved
   - name: research
     runtime: codex
     model_tier: regular
     sandbox: workspace-write
     parent: lead
     session: false
+    approval: approved
   # Add roles below, two-space indented, one "- name:" per role.
   # Each name must have a matching definition in .claude/agents/<name>.md.
   #

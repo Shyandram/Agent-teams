@@ -355,6 +355,20 @@ role children are named subagents associated with that session. A child role may
 further subagents, but it never creates a second top-level runtime session. This keeps
 one context per main task instead of multiplying sessions for every role.
 
+For research branching, add idea-generals as proposed children first:
+
+```yaml
+- name: idea1-general
+  parent: research-general
+  session: true
+  approval: proposed
+```
+
+The main general reviews the proposal. Changing `approval` to `approved` makes that
+idea-general eligible to create its own session on the next launch. Three approved ideas
+plus the main general therefore create four sessions; before approval, only the main
+general creates one.
+
 **`--layout bg` vs `--layout tmux`** — the choice that matters most:
 
 | | `bg` | `tmux` |
