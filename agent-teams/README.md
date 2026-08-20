@@ -7,6 +7,10 @@ dashboard that shows every session at once.
 Built for the case where you SSH from a Mac or Windows laptop into a Linux box and
 want several agents working in parallel without losing track of them.
 
+> **Looking for how to use a specific command?**
+> [**`docs/commands.md`**](docs/commands.md) is the canonical reference — every command,
+> every flag, with examples. This file explains *why*; that one explains *how*.
+
 ---
 
 ## Install

@@ -111,6 +111,10 @@ agent-teams init — scaffold the team contract into a project
   --general ROLE       Which role orchestrates the others (default: lead).
                        Run the general in whichever CLI you are sitting in;
                        it launches and supervises the rest.
+  --squad "N:a,b"      A group owning one direction end to end. Repeatable.
+                       e.g. --squad "attn:research,analysis,engineering"
+  --subagents          Also write .claude/agents/ specialist definitions.
+  --no-reference-skills  Do not point roles at the reference skill library.
   --build-cmd CMD      e.g. "npm run build"
   --test-cmd CMD       e.g. "npm test"
   --lint-cmd CMD       e.g. "npm run lint"
@@ -627,8 +631,8 @@ cmd_launch() {
       --layout) at_need_arg "$1" $#; layout="$2"; shift 2 ;;
       --only)   at_need_arg "$1" $#; only="$2"; shift 2 ;;
       --task)   at_need_arg "$1" $#; task="$2"; shift 2 ;;
-      --model-for) model_for="${model_for}${model_for:+,}$2"; shift 2 ;;
-      --tier-for)  tier_for="${tier_for}${tier_for:+,}$2"; shift 2 ;;
+      --model-for) at_need_arg "$1" $#; model_for="${model_for}${model_for:+,}$2"; shift 2 ;;
+      --tier-for)  at_need_arg "$1" $#; tier_for="${tier_for}${tier_for:+,}$2"; shift 2 ;;
       --include-general) include_general=1; shift ;;
       --dry-run) dry=1; shift ;;
       -h|--help)
@@ -649,6 +653,9 @@ agent-teams launch — start the team
   --include-general   Also launch the general as a worker. By default it is
                       skipped, because the general is the session YOU are in —
                       it delegates to the others rather than being one of them.
+  --model-for R=M     Override one role's model, this launch only
+  --tier-for  R=T     Override one role's tier, this launch only
+                      (smol | regular | smart | ultra — see `agent-teams model`)
   --dry-run           Show what would start
 
 Cross-runtime teams are the normal case: whichever CLI you are sitting in acts

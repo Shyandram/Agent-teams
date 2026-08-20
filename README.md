@@ -137,7 +137,8 @@ that is still working.
 | | |
 |---|---|
 | [Site](https://shyandram.github.io/Agent-teams/) | Overview |
-| [Skill README](agent-teams/README.md) | Full reference |
+| **[Command reference](agent-teams/docs/commands.md)** | **Every command and flag, with examples — start here to use it** |
+| [Skill README](agent-teams/README.md) | Overview and rationale |
 | [SPIKE-FINDINGS](agent-teams/docs/SPIKE-FINDINGS.md) | Verified runtime behaviour — trust this over vendor docs where they disagree |
 | [Modes](agent-teams/docs/modes.md) · [Monitor](agent-teams/docs/monitor.md) · [Runtimes](agent-teams/docs/runtimes.md) | Design and mechanics |
 | [SSH workflow](agent-teams/docs/ssh-workflow.md) · [Troubleshooting](agent-teams/docs/troubleshooting.md) | Operating it |
