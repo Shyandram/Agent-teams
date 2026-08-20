@@ -230,7 +230,7 @@ are ignored.
 
 ## Roles
 
-Core: `lead` · `engineering` · `research` · `analysis` · `qa` · `ux` · `devops`
+Core: `lead` · `engineering` · `research` · `analysis` · `qa` · `verification` · `ux` · `devops`
 Extras: `translation` · `legal` · `simulation` · `product-marketing`
 
 | Preset | Roles | |
@@ -238,9 +238,9 @@ Extras: `translation` · `legal` · `simulation` · `product-marketing`
 | `solo` | engineering | 1 |
 | `app-dev` | lead, engineering, qa | 3 |
 | `research` | lead, research, analysis, qa | 4 |
-| `app-dev-wide` | + engineering:api/ui, qa:functional/regression, devops | 6 |
-| `research-wide` | + research:survey/data, analysis:primary/ablation, engineering | 7 |
-| `full-stack` | + ux, product-marketing, legal | 8 |
+| `app-dev-wide` | + engineering:api/ui, qa:functional/regression, devops, verification | 7 |
+| `research-wide` | + research:survey/data, analysis:primary/ablation, engineering, verification | 8 |
+| `full-stack` | + ux, devops, verification, product-marketing, legal | 9 |
 
 **Defaults are small on purpose.** Every role is another full context to pay for, another
 note for the others to read, and another thing that can wedge. Start minimal and add when
@@ -558,3 +558,33 @@ qa → `functional regression edge integration accessibility security repro`.
 | `migration` | moving from X to Y: inventory, coexistence, ordering, tested rollback |
 
 Defaults to `research` for research presets, `app-dev` otherwise.
+
+---
+
+## Two kinds of checking
+
+`qa` and `verification` are not the same job, and a team that only has one of them is
+missing something.
+
+| | `qa` | `verification` |
+|---|---|---|
+| Tests | the **product** | the **reporting** |
+| Asks | does it work? | is what they said it did true? |
+| Evidence | acceptance criteria, regressions, edge cases | reproduced commands, real diffs, actual commits |
+| Fixes things | no | **no** — and it must not, or it has audited its own work |
+
+Roles self-report `status: done` and a `verified:` line. Nothing else checks those. On a
+team whose work nobody watched happen, a false "done" costs more than a bug — it stops
+anyone else from looking.
+
+`verification` re-runs the command a role said it ran, compares, and returns one of three
+verdicts: **confirmed**, **contradicted**, or **unverifiable**. That third one matters
+most: a claim with no recorded command or seed cannot be checked at all, and that is a
+finding, not a pass.
+
+```bash
+agent-teams focus list verification
+agent-teams team add verification
+```
+
+It ships in the `-wide` and `full-stack` presets, and is opt-in for the small ones.

@@ -89,3 +89,10 @@ translation	layout	Text expansion, truncation, and bidirectional layout in the a
 product-marketing	positioning	Audience, problem, and benefit, stated so a reader knows whether this is for them.
 product-marketing	claims	Every quantitative claim traced to a reproducible source. No number without a run behind it.
 product-marketing	launch	Release narrative, changelog, and documentation that matches what actually shipped.
+# ---------------------------------------------------------------- verification
+verification	claims	Every status: done and status: partial in the result blocks and coordination notes. Each is a hypothesis until reproduced.
+verification	evidence	The verified: line specifically — re-run each command a role said it ran and compare to what it reported. A number that does not reproduce is the finding.
+verification	landed	Whether claimed changes exist where a reader would look: paths present, content as described, committed to the branch named — not stranded in a worktree.
+verification	coverage	Acceptance criteria in AIM.md that no role claimed, and claims that serve nothing in AIM.md. Gaps in both directions.
+verification	reproduce	Independently reproduce the headline result end to end from a clean state, using only what was recorded.
+verification	audit	Which claims cannot be checked at all because no command, seed, or artifact was recorded. Unverifiable is a verdict, not a pass.

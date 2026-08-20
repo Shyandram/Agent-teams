@@ -153,7 +153,7 @@ A background agent can relocate itself into a git worktree (`EnterWorktree`) and
 
 Sources live in `roles/` (core) and `roles/extras/` (opt-in). `init` emits each one three ways: a `.claude/agents/<role>.md` subagent definition, a plain-text prompt for `--append-system-prompt-file`, and a prompt prefix for runtimes without a system-prompt flag.
 
-Core: `lead`, `engineering`, `research`, `analysis`, `qa`, `ux`, `devops`
+Core: `lead`, `engineering`, `research`, `analysis`, `qa`, `verification`, `ux`, `devops`
 Extras: `translation`, `legal`, `simulation`, `product-marketing`
 
 Presets: `research` = lead+research+analysis+engineering+qa · `app-dev` = lead+engineering+ux+qa+devops · `full-stack` = app-dev+product-marketing+legal
@@ -288,3 +288,19 @@ explicitly; `--focus-for x="free text"` overrides it.
 independently of the role preset. Pick by the *shape of the work*: `experiment` for a
 single question with a pre-registered threshold, `library` when the interface is the
 product, `migration` when both states must work throughout.
+
+## qa verifies the product; verification verifies the claims
+
+Two different jobs. `qa` asks *does it work* — acceptance criteria, regressions, edge
+cases. `verification` asks *is what they said true* — it re-runs the command a role put in
+its `verified:` line, compares, and returns **confirmed**, **contradicted**, or
+**unverifiable**.
+
+That third verdict is the point. A claim with no recorded command or seed cannot be
+checked, and that is a finding rather than a pass. Never let it be upgraded to confirmed
+because the claim is plausible or the role sounded sure.
+
+`verification` must not fix what it finds — a verifier that repairs has audited its own
+work and left no independent check. It reports to the role that made the claim.
+
+Ships in `-wide` and `full-stack`; `agent-teams team add verification` for the rest.

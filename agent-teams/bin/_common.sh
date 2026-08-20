@@ -348,6 +348,7 @@ at_role_domains() {
     ux)                printf 'product-team, engineering-team' ;;
     devops)            printf 'engineering, standards' ;;
     legal)             printf 'compliance-os, audit, standards' ;;
+    verification)      printf 'standards, audit, engineering-team' ;;
     simulation)        printf 'research, research-ops' ;;
     product-marketing) printf 'marketing, marketing-skill, business-growth, commercial, product-team' ;;
     translation)       printf 'markdown-html, standards' ;;
@@ -592,10 +593,10 @@ at_preset_roles() {
   # instances of one role.
   case "$1" in
     research)        printf 'lead,research,analysis,qa' ;;
-    research-wide)   printf 'lead,research:survey,research:data,analysis:primary,analysis:ablation,engineering,qa' ;;
+    research-wide)   printf 'lead,research:survey,research:data,analysis:primary,analysis:ablation,engineering,qa,verification' ;;
     app-dev)         printf 'lead,engineering,qa' ;;
-    app-dev-wide)    printf 'lead,engineering:api,engineering:ui,qa:functional,qa:regression,devops' ;;
-    full-stack)      printf 'lead,engineering:api,engineering:ui,ux,qa,devops,product-marketing,legal' ;;
+    app-dev-wide)    printf 'lead,engineering:api,engineering:ui,qa:functional,qa:regression,devops,verification' ;;
+    full-stack)      printf 'lead,engineering:api,engineering:ui,ux,qa,devops,verification,product-marketing,legal' ;;
     solo)            printf 'engineering' ;;
     *) return 1 ;;
   esac
