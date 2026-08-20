@@ -6,7 +6,7 @@
 >
 > Last updated: <YYYY-MM-DD> by <role/person>
 
-## From → to
+## From → to     <!-- aim:objective -->
 
 | | Current | Target |
 |---|---|---|
@@ -14,13 +14,13 @@
 | Why it is inadequate | TODO | — |
 | What the target buys | — | TODO |
 
-## Why now
+## Why now     <!-- aim:rationale -->
 
 > Migrations have a real cost and compete with feature work. What makes this the moment?
 
 TODO
 
-## Inventory
+## Inventory     <!-- aim:inputs -->
 
 > What has to move, counted. A migration plan without a count is a guess.
 
@@ -30,14 +30,27 @@ TODO
 
 **Unknowns to resolve before committing:** TODO
 
-## Strategy
+## Out of scope     <!-- aim:boundary -->
+
+> The list that keeps a migration from becoming a rewrite. Everything here is something a
+> reader could reasonably expect to be included, and is not.
+
+**Not moving in this migration:** TODO
+
+**Improvements deliberately deferred:** TODO — the code you will be tempted to fix while
+you are already in the file. Record it, leave it, do it after.
+
+> "While I was in there" is how a two-week migration becomes a two-month one. Behaviour
+> changes and cleanups are separate commits, ideally separate work.
+
+## Strategy     <!-- aim:method -->
 
 - [ ] **Incremental** — old and new coexist; move a slice at a time *(preferred)*
 - [ ] **Big bang** — one cutover *(requires justification: why can these not coexist?)*
 
 **Coexistence mechanism:** TODO — adapter, shim, dual-write, feature flag
 
-## Order
+## Order     <!-- aim:rollout -->
 
 > Sequenced, with the reason. Usually: lowest-risk first to prove the path, highest-churn
 > last so it does not rot while you work.
@@ -45,7 +58,7 @@ TODO
 1. TODO
 2. TODO
 
-## Rollback
+## Rollback     <!-- aim:verification -->
 
 > For each stage: how to get back, and whether it has been *tested* rather than assumed.
 > A migration stage with no tested rollback is a one-way door.
@@ -54,14 +67,27 @@ TODO
 |---|---|---|
 | TODO | TODO | no |
 
-## Definition of done
+## Current state     <!-- aim:current -->
+
+> How far the move has got. On a migration this is the highest-value section in the file:
+> the inventory says what must move, this says what has.
+
+| Surface | Moved | Verified | Old path removed |
+|---|---|---|---|
+| TODO | no | no | no |
+
+- **In flight:** TODO — who owns it
+- **Blocked:** TODO — on what
+- **Shims outstanding:** TODO — each with its removal date
+
+## Definition of done     <!-- aim:done -->
 
 - [ ] Every item in the inventory moved, or explicitly recorded as abandoned
 - [ ] The old path removed, not merely unused
 - [ ] Docs, examples, and CI reference only the new path
 - [ ] No compatibility shim left behind without a removal date
 
-## Risks
+## Risks     <!-- aim:risks -->
 
 | Risk | Blast radius | Mitigation |
 |---|---|---|
@@ -69,7 +95,7 @@ TODO
 
 ---
 
-## For the team
+## For the team     <!-- aim:team -->
 
 - **Both states work at every commit.** Never leave the repository in a half-migrated
   state that only builds on your machine.
@@ -77,3 +103,7 @@ TODO
   it separately — a migration diff that also changes behaviour cannot be reviewed.
 - **Count before you plan.** Report the real inventory even when it is worse than hoped.
 - **An untested rollback is not a rollback.**
+- **Claims get audited.** Where the team has a `verification` role, a `status: done` is a
+  hypothesis until it returns *confirmed*. *Unverifiable* — nothing recorded to re-run —
+  is a finding, not a pass. Record the command or seed that would let someone else check
+  you, at the time you make the claim, not afterwards.

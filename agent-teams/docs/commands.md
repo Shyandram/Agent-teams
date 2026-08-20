@@ -19,7 +19,7 @@ For the design behind it, see [modes.md](modes.md) (why there are two launch mod
 - [Composing the team](#composing-the-team) — `role` `focus` `team` `model`
 - [Running it](#running-it) — `launch` `restart`
 - [Watching it](#watching-it) — `status` `monitor`
-- [Talking to it](#talking-to-it) — `send` `broadcast` `steer` `inbox` `attach`
+- [Talking to it](#talking-to-it) — `send` `broadcast` `acks` `steer` `inbox` `attach`
 - [Ending it](#ending-it) — `stop` `close`
 - [Syntax reference](#syntax-reference)
 - [Environment variables](#environment-variables)
@@ -62,15 +62,17 @@ agent-teams doctor                         # 3. check runtimes, auth, trust
 agent-teams launch --layout tmux           # 4. start the workers
 agent-teams monitor                        # 5. watch (127.0.0.1:8787)
 
+agent-teams broadcast "spec changed"       #    everyone reads this first
 agent-teams steer engineering "API first"  #    redirect a running role
 agent-teams attach qa                      #    take one over by hand
 
 agent-teams close --reason "v1 shipped"    # 6. disband + closeout report
 ```
 
-**Step 2 is the one people skip.** `AIM.md` arrives full of `TODO`s, and a fleet
-launched against an unfilled aim produces roles that invent their own objectives and
-diverge quietly. Nothing in the tool currently blocks that — it is on you.
+**Step 2 is the one people skip.** `AIM.md` arrives full of `TODO`s, and a fleet launched
+against an unfilled aim produces roles that invent their own objectives and diverge
+quietly. `launch` refuses while the key sections are still `TODO` — see
+[below](#launch--start-the-team).
 
 Watching from a laptop, over SSH:
 
@@ -323,7 +325,26 @@ agent-teams launch [options]
 | `--include-general` | Also launch the general as a worker |
 | `--model-for R=M` | Override one role's model, this launch only |
 | `--tier-for R=T` | Override one role's tier, this launch only |
+| `--force` | Launch even though `AIM.md` is still mostly unfilled |
 | `--dry-run` | Show what would start |
+
+**`launch` refuses if `AIM.md` is unfilled.** It checks the sections roles actually align
+on — objective, boundary, success criteria, hypotheses, definition of done — and names
+the ones still saying `TODO`:
+
+```
+! AIM.md still has 5 key section(s) unanswered:
+      Question
+      Hypotheses
+      Success criteria
+      Scope
+      Definition of done for the whole project
+```
+
+This is the failure the templates warn about and nothing used to enforce: roles read
+`AIM.md` before their own brief, so with these blank each one invents an objective and
+you find out at closeout. `--force` proceeds anyway; `--dry-run` reports what would
+happen without refusing.
 
 **`--mode native` does not fork anything.** Native Claude teammates *cannot* be spawned
 headlessly — verified, see [SPIKE-FINDINGS.md](SPIKE-FINDINGS.md). This mode prepares the
@@ -410,6 +431,11 @@ expand a live tail.
 The first two are rendered loudly and separately, because an agent waiting on a prompt
 nobody can answer produces exactly the same silence as one that is thinking.
 
+**Unread mail is shown too**, below the roles: any role holding an urgent unread message,
+and any broadcast some role has not acked, with the names of who is still holding it up.
+An unread broadcast is the same class of problem as a blocked role — the agent is alive
+and producing, from instructions the team has already superseded.
+
 Do not `--bind 0.0.0.0`. Use an SSH tunnel. See [monitor.md](monitor.md) for the
 collectors and [hooks](../templates/hooks/README.md) for firing on a state change.
 
@@ -419,11 +445,11 @@ collectors and [hooks](../templates/hooks/README.md) for firing on a state chang
 
 Four channels. Which one you want depends on the layout.
 
-### `send` / `broadcast` — queued message
+### `send` — message one role
 
 ```
 agent-teams send <role> "<message>" [--from ROLE] [--urgent]
-agent-teams broadcast "<message>"   [--from ROLE] [--urgent]
+agent-teams send --all "<message>"        # --all makes it a broadcast instead
 ```
 
 Writes JSON to `.agent-teams/inbox/<role>.json`. **Delivery is at the recipient's next
@@ -434,7 +460,57 @@ inbox at natural breakpoints and after each unit of work.
 `$AGENT_TEAMS_ROLE`, else `human` — which is how roles message each other, with an audit
 trail in `.agent-teams/outbox/`.
 
-`broadcast` is `send --all`; it skips the sender.
+### `broadcast` — the shared channel everyone reads first
+
+```
+agent-teams broadcast "<message>" [--from ROLE] [--urgent]
+agent-teams send --all "<message>"        # the same thing; broadcast is this alias
+```
+
+Posts **one** record to `.agent-teams/broadcast.json` — not a copy per inbox. Two
+consequences, both deliberate:
+
+**Every role drains it before its own inbox.** `agent-teams inbox <role>` prints a
+`BROADCAST — read these first` section above personal messages, and roles are instructed
+to act on those first. A broadcast is by definition the thing that changes what everyone
+should be doing, so reading it second means acting on instructions it already superseded.
+If a broadcast contradicts a role's current task, it stops and follows the broadcast.
+
+**You can ask who has actually read it** — impossible with N copies:
+
+```bash
+agent-teams acks
+```
+
+Broadcast only for what genuinely changes everyone's work: a decision reversed, an
+interface changed, a direction abandoned. Anything concerning one role is a `send`. A
+broadcast that did not need to be one costs every role a read and trains the team to skim
+them.
+
+### `acks` — who has read each broadcast
+
+```
+agent-teams acks [<broadcast-id>] [--json]
+```
+
+```
+  [8c894c68] from human   2026-08-20T07:03:37Z
+      API contract changed — regenerate clients before continuing
+      read by 2/3 — waiting on: qa
+```
+
+A role records its receipt when it runs `inbox <role> --mark-read`. **When the last role
+reads a broadcast, the sender gets a receipt in their own inbox** —
+
+```
+* [db8b4e72] system -> human (message)
+      read receipt: broadcast 8c894c68 has now been read by every role.
+```
+
+Only the *completing* read sends a receipt. Acking every individual read back would put
+one message per role per announcement into the sender's inbox, burying the signal it
+carries. Receipts are idempotent: re-reading does not re-fire one. A sender is never
+counted among the readers of their own broadcast.
 
 ### `steer` — redirect a role that is already running
 
@@ -456,8 +532,20 @@ agent-teams steer research-data "stop at 3 datasets, we don't need more"
 agent-teams inbox [<role>] [--all] [--json] [--mark-read]
 ```
 
-With no role, shows the unread count for every role. `--all` includes read messages;
-`--mark-read` marks everything read after showing (roles do this themselves).
+**Broadcasts print first**, in their own section above personal messages. With no role,
+shows a per-role summary that counts them separately:
+
+```
+  lead               1 broadcast + 0 unread
+  engineering        —
+  qa                 1 broadcast + 2 unread
+```
+
+`--all` includes read messages. **`--mark-read` also records the role's broadcast
+receipt** — that is what `acks` reads, so a role that never marks read looks like it
+never saw the announcement. Roles do this themselves as part of the protocol.
+
+`--json` returns `{"broadcast": [...], "inbox": [...]}`.
 
 Useful for the failure mode where you sent something important and the role never
 reached a breakpoint to read it.
@@ -605,7 +693,8 @@ Under `.agent-teams/`:
 | `roles/<name>.md` | Your project-local roles — these override built-ins |
 | `sessions/<role>.json` | Live session handle: pid, session id, tmux target, layout |
 | `logs/<role>.log` | Per-role output. Gitignored |
-| `inbox/<role>.json` · `outbox/<role>.json` | Messaging, capped at 200 messages |
+| `broadcast.json` | The shared channel every role reads first, with a receipt per role |
+| `inbox/<role>.json` · `outbox/<role>.json` | Direct messaging, capped at 200 messages |
 | `hooks/` | Executables fired on a state change — see [hooks/README.md](../templates/hooks/README.md) |
 | `reference-skills/` | Vendored copy from `skills --fetch`. Gitignored |
 
@@ -623,6 +712,10 @@ denies force-push and pushes to `main`.
   "project_name": "shop",
   "generated_at": "2026-08-20T09:14:02Z",
   "roles": [ ... ],
+  "pending_broadcasts": [
+    {"id": "8c894c68", "from": "human", "urgent": false,
+     "text": "...", "waiting_on": ["engineering", "lead"]}
+  ],
   "warnings": [ "..." ]
 }
 ```
@@ -641,6 +734,8 @@ Each row in `roles`:
 | `last_text` | Clipped tail of what it last produced |
 | `note_status` | From the coordination note: `active` `blocked` `handoff` `complete` |
 | `tokens_total` · `tokens_cache_read` | Spend |
+| `unread` · `unread_urgent` | Messages waiting in this role's inbox |
+| `broadcast_unread` | Broadcasts this role has not yet acked (never counts its own) |
 | `managed` | `false` = live in this project but not declared in `team.yaml` |
 | `error` | Why this row could not be read, if it could not |
 | `name` · `cwd` · `started_at` | Session metadata |

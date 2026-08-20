@@ -1117,11 +1117,18 @@ def collect_state(project, home=None):
     except Exception as exc:
         warnings.append("hooks unavailable: %s" % exc)
 
+    try:
+        pending_broadcasts = annotate_mail(project, rows, warnings)
+    except Exception as exc:                      # never let mail break collection
+        warnings.append("mail unavailable: %s" % exc)
+        pending_broadcasts = []
+
     return {
         "project": project,
         "project_name": manifest.get("project_name") or os.path.basename(project),
         "generated_at": iso_utc(now),
         "roles": rows,
+        "pending_broadcasts": pending_broadcasts,
         "warnings": warnings,
     }
 
@@ -1191,6 +1198,18 @@ def render_table(state):
             for r in errored:
                 out.append("      %-16s %s" % (r.get("role") or "?",
                                                (r.get("error") or "")[:60]))
+        # An unread urgent message or broadcast is as actionable as a blocked role:
+        # the agent is producing, but from instructions the team has moved past.
+        urgent = [r for r in roles if (r.get("unread_urgent") or 0) > 0]
+        if urgent:
+            out.append("  @ %d role(s) have URGENT unread messages:" % len(urgent))
+            for r in urgent:
+                out.append("      %-16s %d urgent" % (r.get("role") or "?",
+                                                      r.get("unread_urgent") or 0))
+        for b in (state.get("pending_broadcasts") or []):
+            out.append("  @ broadcast %s from %s not yet read by: %s"
+                       % (b.get("id"), b.get("from"), ", ".join(b.get("waiting_on") or [])))
+
         if not blocked and not errored:
             live = [r for r in roles if r.get("state") in ("working", "idle")]
             unknown = [r for r in roles if r.get("state") == "unknown"]
@@ -1209,6 +1228,78 @@ def render_table(state):
         out.append("  warning: %s" % w)
     out.append("")
     return "\n".join(out)
+
+
+
+# ---------------------------------------------------------------------------
+# Mail — unread counts per role.
+#
+# The CLI told users that `--urgent` "shows loudly in the monitor", and the monitor
+# did not read the mailboxes at all. An unread urgent broadcast is exactly the kind
+# of silent failure this dashboard exists to surface: the role is alive, producing,
+# and working from instructions the team has already superseded.
+
+def collect_mail(project, warnings=None):
+    """{role: {"unread", "urgent", "broadcast_unread"}}. Never raises."""
+    out = {}
+    inbox_dir = os.path.join(project, ".agent-teams", "inbox")
+    try:
+        names = os.listdir(inbox_dir)
+    except Exception:
+        names = []
+    for fn in names:
+        if not fn.endswith(".json"):
+            continue
+        role = fn[:-5]
+        try:
+            with open(os.path.join(inbox_dir, fn)) as fh:
+                msgs = json.load(fh)
+            if not isinstance(msgs, list):
+                continue
+        except Exception as exc:
+            if warnings is not None:
+                warnings.append("unreadable inbox %s: %s" % (fn, exc))
+            continue
+        unread = [m for m in msgs if not m.get("read")]
+        out.setdefault(role, {})["unread"] = len(unread)
+        out[role]["urgent"] = sum(1 for m in unread if m.get("urgent"))
+
+    bc_path = os.path.join(project, ".agent-teams", "broadcast.json")
+    try:
+        with open(bc_path) as fh:
+            bcs = json.load(fh)
+        if not isinstance(bcs, list):
+            bcs = []
+    except Exception:
+        bcs = []
+    return out, bcs
+
+
+def annotate_mail(project, rows, warnings=None):
+    """Attach unread counts to each row, and return the broadcast summary."""
+    per_role, bcs = collect_mail(project, warnings)
+    for r in rows:
+        role = r.get("role")
+        m = per_role.get(role) or {}
+        r["unread"] = m.get("unread") or 0
+        r["unread_urgent"] = m.get("urgent") or 0
+        # A broadcast counts as unread for this role until the role acks it, and a
+        # role is never waiting on its own broadcast.
+        r["broadcast_unread"] = sum(
+            1 for b in bcs
+            if role not in (b.get("acks") or {}) and b.get("from") != role)
+    pending = []
+    for b in bcs:
+        acks = b.get("acks") or {}
+        waiting = [r.get("role") for r in rows
+                   if r.get("role") not in acks and b.get("from") != r.get("role")]
+        if waiting:
+            pending.append({"id": b.get("id"), "from": b.get("from"),
+                            "urgent": bool(b.get("urgent")),
+                            "text": _clip(b.get("text") or ""),
+                            "waiting_on": waiting})
+    return pending
+
 
 
 def main(argv):

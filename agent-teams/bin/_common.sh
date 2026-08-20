@@ -472,11 +472,26 @@ Other roles and the human can send you messages. Nothing interrupts you mid-turn
 Check it: after finishing a unit of work, before starting something new, and before you
 report yourself complete. A message marked \`!\` is urgent — read it before continuing.
 
+**Broadcasts outrank your own messages.** The command above prints a BROADCAST section
+first; read and act on those before anything addressed only to you. A broadcast is what
+changes the plan for the whole team, so a personal message read first may already be
+superseded by it. If a broadcast contradicts your current task, stop and follow the
+broadcast, then say so in your coordination note.
+
+\`--mark-read\` records your read receipt. That is how the sender learns the team has
+seen an announcement, so do not skip it — an unacked broadcast looks unread forever.
+
 To reach someone else:
 
     agent-teams send <role> "<message>"      one role
-    agent-teams broadcast "<message>"        everyone
+    agent-teams broadcast "<message>"        everyone, top priority
     agent-teams send <role> --urgent "..."   when they must see it before proceeding
+    agent-teams acks                         who has read your broadcast
+
+Broadcast only for what genuinely changes everyone's work — a decision reversed, an
+interface changed, a direction abandoned. Anything that concerns one role is a \`send\`;
+a broadcast that did not need to be one costs every role a read and trains the team to
+skim them.
 
 Keep messages to a few lines: state the ask or the fact first, reference files as
 \`path:line\` and commits as SHAs rather than pasting them, and say exactly what you need
@@ -679,4 +694,75 @@ at_confirm() {
 
 at_json_escape() {
   python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.stdin.read().rstrip("\n")))'
+}
+
+# ---------- AIM readiness ----------
+# The templates warn that an unfilled AIM.md "produces roles that invent their own
+# objectives and quietly diverge", and then nothing checked it. This is that check.
+#
+# The signal is the sections a reader needs most: objective, boundary, success/done.
+# A team whose aim still says TODO in all of them has nothing to align on, and the
+# divergence is invisible until closeout.
+at_aim_unfilled() {
+  # Echoes the count of still-TODO key sections, and their names on stderr.
+  python3 - "$1" <<'PY'
+import re, sys
+try:
+    src = open(sys.argv[1], encoding="utf-8").read()
+except Exception:
+    print(0); sys.exit(0)
+
+# Split on headings, keeping each section's anchor slot when it has one.
+parts = re.split(r'^## (.+)$', src, flags=re.M)[1:]
+key = {"objective", "boundary", "success", "done", "hypotheses"}
+empty = []
+for i in range(0, len(parts) - 1, 2):
+    head, body = parts[i], parts[i + 1]
+    m = re.search(r'<!--\s*aim:([a-z-]+)\s*-->', head)
+    slot = m.group(1) if m else None
+    if slot not in key:
+        continue
+    # Strip blockquote guidance — it ships filled in and is not the author's answer.
+    answer = "\n".join(l for l in body.split("\n") if not l.lstrip().startswith(">"))
+    # A remaining TODO is the signal. Deliberately strict: an earlier version tried to
+    # judge whether the prose "looked filled in", and table headers and bold labels
+    # ("**In scope:** TODO") read as content, so Scope and Hypotheses passed while
+    # still saying TODO. For the sections roles align on, one TODO is worth raising.
+    if "TODO" in answer:
+        empty.append(re.sub(r'\s*<!--.*', '', head).strip())
+print(len(empty))
+if empty:
+    sys.stderr.write("\n".join(empty) + "\n")
+PY
+}
+
+# at_check_aim <project> <force> <dry-run>
+at_check_aim() {
+  local project="$1" force="${2:-0}" dry="${3:-0}"
+  local aim="$project/AIM.md"
+  [ -f "$aim" ] || return 0
+
+  local names count
+  names="$(at_aim_unfilled "$aim" 2>&1 >/dev/null)"
+  count="$(at_aim_unfilled "$aim" 2>/dev/null)"
+  case "$count" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$count" -eq 0 ] && return 0
+
+  at_say ""
+  at_warn "AIM.md still has $count key section(s) unanswered:"
+  local n
+  printf '%s\n' "$names" | while IFS= read -r n; do
+    [ -n "$n" ] && printf '      %s\n' "$n" >&2
+  done
+  at_say ""
+  at_say "  Roles read AIM.md before their own brief. With these blank they will each"
+  at_say "  invent an objective, and you find out at closeout."
+  at_say ""
+  at_say "  Fill them in:  \$EDITOR $aim"
+  at_say "  Or override:   agent-teams launch --force"
+  at_say ""
+
+  [ "$force" -eq 1 ] && { at_warn "--force: launching against an unfilled aim"; return 0; }
+  [ "$dry" -eq 1 ] && { at_warn "--dry-run: launch would refuse here"; return 0; }
+  at_die "refusing to launch — see above"
 }

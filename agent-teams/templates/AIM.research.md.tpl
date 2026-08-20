@@ -9,21 +9,21 @@
 >
 > Last updated: <YYYY-MM-DD> by <role/person>
 
-## Question
+## Question     <!-- aim:objective -->
 
 > The one question this research answers, stated so that a wrong answer is possible.
 > "Does X improve Y under Z?" — not "explore X".
 
 TODO
 
-## Why it matters
+## Why it matters     <!-- aim:rationale -->
 
 > What becomes possible, or what decision gets made, once this is answered. If nothing
 > changes either way, reconsider the question.
 
 TODO
 
-## Hypotheses
+## Hypotheses     <!-- aim:hypotheses -->
 
 | # | Hypothesis | What would falsify it |
 |---|---|---|
@@ -33,7 +33,7 @@ TODO
 > Every hypothesis needs a falsifier. One with no way to be wrong is not a hypothesis,
 > and no amount of analysis will make it one.
 
-## Success criteria
+## Success criteria     <!-- aim:success -->
 
 > What must be true for this to be finished. Numeric where possible, and decided **now**
 > rather than after seeing results — a threshold chosen afterwards is not a threshold.
@@ -41,7 +41,7 @@ TODO
 - TODO
 - TODO
 
-## Scope
+## Scope     <!-- aim:boundary -->
 
 **In scope:** TODO
 
@@ -50,14 +50,26 @@ TODO
 > The second list matters more than the first. It is what stops a parallel team from
 > expanding indefinitely.
 
-## Method
+## Prior art     <!-- aim:prior-art -->
+
+> What already exists that partly answers this, and why it is not enough.
+>
+> **Fill this in before designing the method.** It is often what reveals the question has
+> already been answered — which is a result, cheaply obtained, and worth more than a
+> method designed in ignorance of it.
+
+| Work | What it established | Why it does not settle this |
+|---|---|---|
+| TODO | TODO | TODO |
+
+## Method     <!-- aim:method -->
 
 > How the question gets answered: design, comparisons, baselines, controls.
 > Name the baseline you are beating and why it is the fair one.
 
 TODO
 
-## Data
+## Data     <!-- aim:inputs -->
 
 | Source | Access | Licence / terms | Retrieved | Notes |
 |---|---|---|---|---|
@@ -66,7 +78,7 @@ TODO
 > Provenance is recorded when data arrives, not reconstructed later. A dataset whose
 > licence nobody checked is a finding you cannot publish.
 
-## Validity threats
+## Validity threats     <!-- aim:risks -->
 
 > How this could produce a confident wrong answer. Be specific; "bias" is not a threat,
 > "the control group was drawn from a different period" is.
@@ -80,12 +92,12 @@ splits, a metric that rewards the wrong behaviour, results that only hold on the
 that was examined, and a comparison whose baseline was tuned less carefully than the
 method.
 
-## Deliverables
+## Deliverables     <!-- aim:outputs -->
 
 - TODO — e.g. a reproducible result with seed and command
 - TODO — e.g. a written finding with evidence and stated limits
 
-## Reproducibility
+## Reproducibility     <!-- aim:verification -->
 
 - Commands: `{{BUILD_CMD}}` · `{{TEST_CMD}}`
 - Seeds: TODO
@@ -93,23 +105,31 @@ method.
 - Every reported number must be reproducible from a recorded command and seed. A number
   no one can regenerate is not a result.
 
-## Open questions
+## Open questions     <!-- aim:open -->
 
 > Things not yet decided. Better recorded here than silently resolved by whoever hits
 > them first.
 
 - TODO
 
-## Prior art
+## Current state     <!-- aim:current -->
 
-> What already exists that partly answers this, and why it is not enough. Filling this in
-> is often what reveals the question has already been answered.
+> The running answer. Not what we plan to do — what we currently believe, and how
+> strongly. The lead updates this at every checkpoint; everyone else reads it first.
+>
+> With several researchers and analysts working different slices at once, this is the
+> only place the whole picture exists. Without it, a new instance reconstructs it from
+> scattered coordination notes and often re-runs work that is already done.
 
-| Work | What it established | Why it does not settle this |
-|---|---|---|
-| TODO | TODO | TODO |
+| Hypothesis | Where it stands | Evidence | Confidence |
+|---|---|---|---|
+| H1 | untested / supported / contradicted | TODO — run, seed, or source | low / medium / high |
 
-## Checkpoints
+- **Ruled out so far:** TODO — and by what
+- **Changed since the last update:** TODO
+- **Blocked:** TODO — on what, and who is waiting
+
+## Checkpoints     <!-- aim:checkpoints -->
 
 > Points at which the direction is re-examined against evidence, not just continued.
 > Without these a research team optimises for looking busy.
@@ -118,7 +138,7 @@ method.
 |---|---|---|
 | TODO | TODO | TODO — abandon, narrow, or change approach |
 
-## Ethics and compliance
+## Ethics and compliance     <!-- aim:compliance -->
 
 > Delete this section if there is genuinely no human data, no personal data, and no
 > licensing constraint. Otherwise it is not optional.
@@ -127,7 +147,7 @@ method.
 - Licences on data or models that restrict use or publication: TODO
 - Approval required before publishing: TODO
 
-## Definition of done for the whole project
+## Definition of done for the whole project     <!-- aim:done -->
 
 > Not per-task — for this research. What has to exist for the question to count as
 > answered, including the case where the answer is "no".
@@ -138,7 +158,7 @@ method.
 
 ---
 
-## For the team
+## For the team     <!-- aim:team -->
 
 Multiple instances of one role work different slices of this aim at once — several
 researchers on different literatures, several analysts on different hypotheses. Each
@@ -154,3 +174,7 @@ Rules that override role instinct:
   new hypothesis and must be labelled as one.
 - **Claims carry their evidence.** Every claim in a deliverable names the run, seed, or
   source that supports it.
+- **Claims get audited.** Where the team has a `verification` role, a `status: done` is a
+  hypothesis until it returns *confirmed*. *Unverifiable* — nothing recorded to re-run —
+  is a finding, not a pass. Record the command or seed that would let someone else check
+  you, at the time you make the claim, not afterwards.

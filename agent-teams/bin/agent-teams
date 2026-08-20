@@ -40,6 +40,7 @@ ${AT_BOLD}COMMANDS${AT_RESET}
   team      Draw the team structure; add / remove / move roles
   send      Message one role   ·  broadcast  Message every role
   steer     Redirect a running role  ·  inbox  Read waiting messages
+  acks      Who has read each broadcast
   launch    Start the team
   status    Print a snapshot of every role
   monitor   Serve the web dashboard
@@ -626,7 +627,7 @@ cmd_doctor() {
 # =====================================================================
 cmd_launch() {
   local project="$PWD" mode="bg" layout="bg" only="" dry=0 task="" include_general=0
-  local model_for="" tier_for=""
+  local model_for="" tier_for="" force=0
   while [ $# -gt 0 ]; do
     case "$1" in
       -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
@@ -636,6 +637,7 @@ cmd_launch() {
       --task)   at_need_arg "$1" $#; task="$2"; shift 2 ;;
       --model-for) at_need_arg "$1" $#; model_for="${model_for}${model_for:+,}$2"; shift 2 ;;
       --tier-for)  at_need_arg "$1" $#; tier_for="${tier_for}${tier_for:+,}$2"; shift 2 ;;
+      --force)  force=1; shift ;;
       --include-general) include_general=1; shift ;;
       --dry-run) dry=1; shift ;;
       -h|--help)
@@ -659,6 +661,7 @@ agent-teams launch — start the team
   --model-for R=M     Override one role's model, this launch only
   --tier-for  R=T     Override one role's tier, this launch only
                       (smol | regular | smart | ultra — see `agent-teams model`)
+  --force             Launch even though AIM.md is still mostly unfilled
   --dry-run           Show what would start
 
 Cross-runtime teams are the normal case: whichever CLI you are sitting in acts
@@ -677,6 +680,8 @@ EOF
 
   local ty; ty="$(at_team_yaml "$project")"
   [ -f "$ty" ] || at_die "no .agent-teams/team.yaml in $project — run: agent-teams init"
+
+  at_check_aim "$project" "$force" "$dry"
 
   if [ "$mode" = "native" ]; then
     launch_native "$project" "$ty"
@@ -1598,14 +1603,24 @@ cmd_send() {
       -h|--help)
         cat >&2 <<'EOF'
 agent-teams send <role> "<message>"     deliver a message to one role
-agent-teams broadcast "<message>"       deliver to every role
+agent-teams broadcast "<message>"       post to the shared broadcast channel
 
   --from ROLE   sender (default: $AGENT_TEAMS_ROLE, else "human")
   --urgent      flag it; the monitor shows urgent unread loudly
 
-Messages land in .agent-teams/inbox/<role>.json. Delivery is at the recipient's
-next poll — a background agent cannot be interrupted mid-turn. To reach a live
-tmux-layout role immediately, use `steer` instead.
+`send` lands in .agent-teams/inbox/<role>.json.
+
+`broadcast` posts ONE record to .agent-teams/broadcast.json, which every role
+drains BEFORE its own inbox. It is not copied per role, so you can ask who has
+actually read it:
+
+  agent-teams acks
+
+When the last role reads a broadcast, the sender gets a receipt in their inbox.
+
+Delivery is at the recipient's next poll either way — a background agent cannot
+be interrupted mid-turn. To reach a live tmux-layout role immediately, use
+`steer` instead.
 EOF
         return 0 ;;
       -*) at_die "send: unknown option '$1'" ;;
@@ -1622,12 +1637,12 @@ EOF
   [ -n "$text" ] || at_die "nothing to send"
 
   if [ "$bcast" -eq 1 ]; then
-    local n=0
-    at_team_roles "$ty" | while IFS=$'\037' read -r r _a _b _c _d _e _f _g _h; do
-      [ -n "$r" ] || continue
-      [ "$r" = "$from" ] && continue
-      at_mb_append "$project" "$r" "$from" message "$urgent" "$text" >/dev/null && at_ok "→ $r"
-    done
+    # One shared record, not N inbox copies — so "has everyone seen it?" is answerable.
+    local id; id="$(at_bc_append "$project" "$from" "$urgent" "$text")" \
+      || at_die "could not write the broadcast channel"
+    at_ok "broadcast $id from $from"
+    at_info "every role reads the broadcast channel before its own inbox"
+    at_info "who has read it:  agent-teams acks"
     return 0
   fi
 
@@ -1701,6 +1716,13 @@ agent-teams inbox [<role>]   show waiting messages
   --json         machine-readable
   --mark-read    mark everything read after showing (roles do this)
 
+Broadcasts are shown FIRST, above your own messages, because a broadcast is what
+changes the plan for everyone — reading it second means acting on instructions it
+already superseded.
+
+--mark-read also records your broadcast receipt, which is how `agent-teams acks`
+knows who has seen an announcement.
+
 With no role, shows the unread count for every role.
 EOF
         return 0 ;;
@@ -1718,8 +1740,12 @@ EOF
     at_say ""
     at_team_roles "$ty" | while IFS=$'\037' read -r r _a _b _c _d _e _f _g _h; do
       [ -n "$r" ] || continue
-      local n; n="$(at_mb_unread_count "$project" "$r")"
-      if [ "$n" -gt 0 ]; then
+      local n b; n="$(at_mb_unread_count "$project" "$r")"
+      b="$(at_bc_unread_count "$project" "$r")"
+      if [ "$b" -gt 0 ]; then
+        printf '  %s%-18s %s broadcast + %s unread%s\n' \
+          "$AT_YELLOW" "$r" "$b" "$n" "$AT_RESET" >&2
+      elif [ "$n" -gt 0 ]; then
         printf '  %s%-18s %s unread%s\n' "$AT_YELLOW" "$r" "$n" "$AT_RESET" >&2
       else
         printf '  %-18s %s—%s\n' "$r" "$AT_DIM" "$AT_RESET" >&2
@@ -1729,9 +1755,126 @@ EOF
     return 0
   fi
 
-  at_mb_read "$project" "$role" "$all" "$fmt"
-  [ "$mark" -eq 1 ] && at_mb_mark_read "$project" "$role" >/dev/null
+  # Broadcasts first, always. A broadcast is by definition the thing that changes what
+  # everyone should be doing; reading it after your personal queue means acting on
+  # instructions that a broadcast already superseded.
+  if [ "$fmt" = "--json" ]; then
+    printf '{"broadcast":'
+    at_bc_read "$project" "$role" "$all" --json
+    printf ',"inbox":'
+    at_mb_read "$project" "$role" "$all" --json
+    printf '}\n'
+  else
+    local bc; bc="$(at_bc_read "$project" "$role" "$all")"
+    if [ -n "$bc" ]; then
+      printf '\n%s── BROADCAST — read these first ──%s\n' "$AT_BOLD" "$AT_RESET" >&2
+      printf '%s\n' "$bc" >&2
+      printf '\n%s── your inbox ──%s\n' "$AT_BOLD" "$AT_RESET" >&2
+    fi
+    at_mb_read "$project" "$role" "$all" ""
+  fi
+
+  if [ "$mark" -eq 1 ]; then
+    at_mb_mark_read "$project" "$role" >/dev/null
+    at_bc_ack_and_receipt "$project" "$role"
+  fi
   return 0
+}
+
+# Records this role's broadcast receipts, and tells the sender when the LAST reader
+# has seen one. Acking every individual read back would put one message per role per
+# announcement into the sender's inbox — noise that buries the signal it carries.
+cmd_acks() {
+  local project="$PWD" fmt="" id=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C|--project-dir) at_need_arg "$1" $#; project="$2"; shift 2 ;;
+      --json) fmt="--json"; shift ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+agent-teams acks [<broadcast-id>]   who has read each broadcast
+
+  --json    machine-readable
+
+A broadcast is one shared record, not a copy per inbox, so this can answer the
+question that matters for an announcement: has everyone actually seen it?
+
+Roles record a receipt when they run `agent-teams inbox <role> --mark-read`. When
+the last role reads one, the sender gets a receipt message in their own inbox.
+EOF
+        return 0 ;;
+      -*) at_die "acks: unknown option '$1'" ;;
+      *) id="$1"; shift ;;
+    esac
+  done
+  project="$(at_resolve_project "$project")" || exit 1
+  [ -n "$project" ] || at_die "could not resolve the project directory"
+  AT_PROJECT="$project"
+
+  local ty; ty="$(at_team_yaml "$project")"
+  [ -f "$ty" ] || at_die "no team here — run: agent-teams init"
+  local roster; roster="$(at_team_roles "$ty" | cut -d"$(printf '\037')" -f1 | tr '\n' ',')"
+
+  python3 - "$(at_bc_file "$project")" "$roster" "$id" "$fmt" <<'PY'
+import json, sys
+path, roster, want, fmt = sys.argv[1:5]
+everyone = [r for r in roster.split(",") if r]
+try:
+    msgs = json.load(open(path))
+except Exception:
+    msgs = []
+if want:
+    msgs = [m for m in msgs if m.get("id") == want]
+
+if fmt == "--json":
+    out = []
+    for m in msgs:
+        acks = m.get("acks") or {}
+        expected = [r for r in everyone if r != m.get("from")]
+        out.append({"id": m.get("id"), "from": m.get("from"), "ts": m.get("ts"),
+                    "urgent": m.get("urgent"), "text": m.get("text"),
+                    "read_by": sorted(acks), "pending": [r for r in expected if r not in acks],
+                    "complete": bool(expected) and all(r in acks for r in expected)})
+    json.dump(out, sys.stdout, indent=2); print()
+    sys.exit(0)
+
+if not msgs:
+    print("  no broadcasts" if not want else "  no broadcast with id %s" % want)
+    sys.exit(0)
+
+for m in msgs:
+    acks = m.get("acks") or {}
+    expected = [r for r in everyone if r != m.get("from")]
+    pending = [r for r in expected if r not in acks]
+    head = "%s [%s] from %s" % ("!" if m.get("urgent") else " ", m.get("id"), m.get("from"))
+    print("\n%s   %s" % (head, m.get("ts")))
+    first = (m.get("text") or "").split("\n")[0]
+    print("      %s" % (first[:72] + ("…" if len(first) > 72 else "")))
+    if expected and not pending:
+        print("      read by all %d" % len(expected))
+    else:
+        print("      read by %d/%d — waiting on: %s"
+              % (len(expected) - len(pending), len(expected), ", ".join(pending) or "—"))
+print()
+PY
+}
+
+at_bc_ack_and_receipt() {
+  local project="$1" role="$2"
+  local ty; ty="$(at_team_yaml "$project")"
+  [ -f "$ty" ] || return 0
+
+  local roster; roster="$(at_team_roles "$ty" | cut -d"$(printf '\037')" -f1 | tr '\n' ',')"
+  local out; out="$(at_bc_ack "$project" "$role" "$roster")" || return 0
+
+  local completed; completed="$(printf '%s\n' "$out" | sed -n '2p')"
+  local pair sender id
+  for pair in $completed; do
+    sender="${pair%%:*}"; id="${pair##*:}"
+    [ -n "$sender" ] && [ "$sender" != "$role" ] || continue
+    at_mb_append "$project" "$sender" "system" message 0 \
+      "read receipt: broadcast $id has now been read by every role." >/dev/null || true
+  done
 }
 
 # =====================================================================
@@ -2240,6 +2383,7 @@ main() {
     broadcast) cmd_send --all "$@" ;;
     steer)     cmd_steer "$@" ;;
     inbox)     cmd_inbox "$@" ;;
+    acks)      cmd_acks "$@" ;;
     launch)  cmd_launch "$@" ;;
     status)  cmd_status "$@" ;;
     monitor) cmd_monitor "$@" ;;

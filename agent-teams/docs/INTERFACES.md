@@ -145,12 +145,29 @@ Note that matching applies to whole commands: an entry for `git add` does not pe
       "last_activity": "2026-08-20T06:29:57Z",
       "last_text": "Refactored the auth module and reran the tests.",
       "note_status": "active",
-      "error": null
+      "error": null,
+      "unread": 2,
+      "unread_urgent": 1,
+      "broadcast_unread": 1
+    }
+  ],
+  "pending_broadcasts": [
+    {
+      "id": "8c894c68",
+      "from": "human",
+      "urgent": false,
+      "text": "API contract changed — regenerate clients before continuing",
+      "waiting_on": ["engineering", "lead"]
     }
   ],
   "warnings": ["codex quota exhausted for role research"]
 }
 ```
+
+The mail fields are **additive** — a consumer written against the earlier shape keeps
+working, and any of them may be absent when the mailbox has never been written.
+`broadcast_unread` never counts a role's own broadcast, and `waiting_on` never lists the
+sender.
 
 `state` is one of, in descending order of how loudly the UI shows it:
 

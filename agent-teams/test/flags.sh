@@ -25,10 +25,24 @@ for fn in $(grep -o '^cmd_[a-z]*' "$src"); do
   # Only the option-parsing region — stop at the heredoc that prints help, so
   # prose inside the help text is never mistaken for a parsed flag.
   parse=$(printf '%s\n' "$body" | sed -n '1,/<<.EOF./p')
+
+  # The command's OWN section of the doc, from its `### ...` heading to the next one.
+  # Grepping the whole file instead lets a flag pass because some other command
+  # happens to document a flag of the same name — --force and --json both did.
+  section=$(awk -v c="$cmd" '
+      /^### / { on = (index($0, "`" c "`") > 0) }
+      on { print }' "$doc")
+
+  if [ -z "$section" ]; then
+    echo "COMMAND NOT DOCUMENTED: agent-teams $cmd"
+    missing=$((missing + 1))
+    continue
+  fi
+
   for flag in $(printf '%s\n' "$parse" | grep -o '^[[:space:]]*--[a-z-]*)' | tr -d ' )' | sort -u); do
     [ "$flag" = "--help" ] && continue
     checked=$((checked + 1))
-    if ! grep -q -- "$flag" "$doc"; then
+    if ! printf '%s\n' "$section" | grep -q -- "$flag"; then
       echo "UNDOCUMENTED: agent-teams $cmd $flag"
       missing=$((missing + 1))
     fi

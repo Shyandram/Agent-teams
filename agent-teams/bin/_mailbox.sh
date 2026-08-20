@@ -128,3 +128,129 @@ try: msgs=json.load(open(sys.argv[1]))
 except Exception: msgs=[]
 print(sum(1 for m in msgs if not m.get("read")))' "$f" 2>/dev/null || printf '0'
 }
+
+# =====================================================================
+# Broadcast channel — one shared board, read before anything else.
+#
+# Why this is not "send to everyone's inbox":
+#   - Fanning a broadcast into N inboxes makes N copies, and nobody can then answer
+#     "has everyone seen it?" — the question that actually matters for an announcement.
+#   - One record with an `acks` map answers it directly, and stays one message no
+#     matter how many instances join later.
+#
+# Layout:  .agent-teams/broadcast.json
+#   [{"id","from","ts","urgent","text","acks":{"<role>":"<ts>"}}]
+#
+# Roles are told to drain this BEFORE their personal inbox: a broadcast is by
+# definition the thing that changes what everyone should be doing, so reading it
+# second means acting on stale instructions first.
+# =====================================================================
+
+at_bc_file() { printf '%s/.agent-teams/broadcast.json' "$1"; }
+
+# at_bc_append <project> <from> <urgent> <text>  -> echoes the id
+at_bc_append() {
+  local project="$1" from="$2" urgent="$3" text="$4"
+  mkdir -p "$project/.agent-teams" || return 1
+  python3 - "$(at_bc_file "$project")" "$from" "$urgent" "$text" <<'PY'
+import json, os, sys, time, uuid
+path, frm, urgent, text = sys.argv[1:5]
+try:
+    msgs = json.load(open(path))
+    if not isinstance(msgs, list): msgs = []
+except Exception:
+    msgs = []
+msg = {
+    "id": uuid.uuid4().hex[:8],
+    "from": frm,
+    "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    "urgent": urgent == "1",
+    "text": text,
+    "acks": {},
+}
+msgs.append(msg)
+tmp = path + ".tmp"
+json.dump(msgs[-200:], open(tmp, "w"), indent=2)
+os.replace(tmp, path)
+print(msg["id"])
+PY
+}
+
+# at_bc_unread_count <project> <role>
+at_bc_unread_count() {
+  local project="$1" role="$2"
+  local f; f="$(at_bc_file "$project")"
+  [ -f "$f" ] || { printf '0'; return 0; }
+  python3 -c '
+import json,sys
+try: msgs=json.load(open(sys.argv[1]))
+except Exception: msgs=[]
+role=sys.argv[2]
+print(sum(1 for m in msgs if role not in (m.get("acks") or {}) and m.get("from")!=role))' \
+    "$f" "$role" 2>/dev/null || printf '0'
+}
+
+# at_bc_read <project> <role> [--all] [--json]
+at_bc_read() {
+  local project="$1" role="$2" all="${3:-}" fmt="${4:-}"
+  local f; f="$(at_bc_file "$project")"
+  [ -f "$f" ] || return 0
+  python3 - "$f" "$role" "$all" "$fmt" <<'PY'
+import json, sys
+path, role, allf, fmt = sys.argv[1:5]
+try:
+    msgs = json.load(open(path))
+except Exception:
+    msgs = []
+if allf != "--all":
+    msgs = [m for m in msgs if role not in (m.get("acks") or {}) and m.get("from") != role]
+if fmt == "--json":
+    json.dump(msgs, sys.stdout, indent=2); print()
+else:
+    for m in msgs:
+        acks = m.get("acks") or {}
+        mark = "!" if m.get("urgent") else "*"
+        seen = "read by %d" % len(acks) if acks else "unread by everyone"
+        print("%s [%s] BROADCAST from %s (%s)  %s" % (
+            mark, m.get("id"), m.get("from"), m.get("ts"), seen))
+        for line in (m.get("text") or "").split("\n"):
+            print("      " + line)
+PY
+}
+
+# at_bc_ack <project> <role> -> echoes "<n-acked> <sender:id ...>"
+#
+# Records the receipt, and reports which broadcasts this ack COMPLETED — the last
+# reader is what the sender actually wants to know about. Acking every read back to
+# the sender would put N messages in their inbox per announcement.
+at_bc_ack() {
+  local project="$1" role="$2" roster="$3"
+  local f; f="$(at_bc_file "$project")"
+  [ -f "$f" ] || { printf '0'; return 0; }
+  python3 - "$f" "$role" "$roster" <<'PY'
+import json, os, sys, time
+path, role, roster = sys.argv[1:4]
+everyone = [r for r in roster.split(",") if r]
+try:
+    msgs = json.load(open(path))
+except Exception:
+    sys.exit(0)
+now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+n, completed = 0, []
+for m in msgs:
+    acks = m.setdefault("acks", {})
+    if m.get("from") == role or role in acks:
+        continue
+    acks[role] = now
+    n += 1
+    # Everyone except the sender must have read it for the receipt to fire.
+    expected = [r for r in everyone if r != m.get("from")]
+    if expected and all(r in acks for r in expected):
+        completed.append("%s:%s" % (m.get("from"), m.get("id")))
+tmp = path + ".tmp"
+json.dump(msgs, open(tmp, "w"), indent=2)
+os.replace(tmp, path)
+print(n)
+print(" ".join(completed))
+PY
+}

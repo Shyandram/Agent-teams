@@ -9,27 +9,27 @@
 >
 > Last updated: <YYYY-MM-DD> by <role/person>
 
-## Problem
+## Problem     <!-- aim:objective -->
 
 > Whose problem, and what it costs them today. Not the feature — the problem the feature
 > is for. If you cannot name who is hurting, you are not ready to build.
 
 TODO
 
-## Users
+## Users     <!-- aim:audience -->
 
 | Who | What they are trying to do | How they do it today |
 |---|---|---|
 | TODO | TODO | TODO |
 
-## Outcome
+## Outcome     <!-- aim:rationale -->
 
 > What is true when this works, from the user's side. Observable, not internal:
 > "a user can recover a deleted draft without contacting support", not "add undo stack".
 
 TODO
 
-## Acceptance criteria
+## Acceptance criteria     <!-- aim:success -->
 
 > Decided **now**, not after the build. These are what QA verifies against and what
 > "done" means. Each must be checkable by someone who did not write the code.
@@ -37,7 +37,7 @@ TODO
 - [ ] TODO
 - [ ] TODO
 
-## Non-goals
+## Non-goals     <!-- aim:boundary -->
 
 > What this deliberately does not do, and why. The most useful section here: it is what
 > stops a parallel team from expanding scope indefinitely.
@@ -45,7 +45,7 @@ TODO
 - TODO — deferred because TODO
 - TODO — not doing, because TODO
 
-## Constraints
+## Constraints     <!-- aim:constraints -->
 
 | Kind | Constraint |
 |---|---|
@@ -55,7 +55,7 @@ TODO
 | Security / privacy | TODO |
 | Deadline | TODO |
 
-## Architecture decisions
+## Architecture decisions     <!-- aim:method -->
 
 > Decisions already made that roles must not silently relitigate. Record the reason —
 > a decision without one gets reversed by the next session that finds it inconvenient.
@@ -64,7 +64,7 @@ TODO
 |---|---|---|
 | TODO | TODO | TODO |
 
-## Verification
+## Verification     <!-- aim:verification -->
 
 - Build: `{{BUILD_CMD}}`
 - Test: `{{TEST_CMD}}`
@@ -73,31 +73,31 @@ TODO
 
 Manual checks that automation does not cover: TODO
 
-## Rollout
+## Rollout     <!-- aim:rollout -->
 
 > How this reaches users, and how it gets undone if it is wrong. A change with no way
 > back is a decision, not a deployment.
 
 TODO
 
-## Open questions
+## Open questions     <!-- aim:open -->
 
 - TODO
 
-## Current state
+## Current state     <!-- aim:current -->
 
 > What exists today that this changes or replaces. A change designed without reading the
 > current behaviour is how regressions ship.
 
 TODO
 
-## Dependencies and integrations
+## Dependencies and integrations     <!-- aim:inputs -->
 
 | What | Depended on for | If it is unavailable |
 |---|---|---|
 | TODO | TODO | TODO |
 
-## Success metrics
+## Success metrics     <!-- aim:metrics -->
 
 > How you will know afterwards whether this worked, from real usage rather than opinion.
 > If nothing is measurable, say so — that is a finding about the plan.
@@ -106,13 +106,13 @@ TODO
 |---|---|---|---|
 | TODO | TODO | TODO | TODO |
 
-## Risks
+## Risks     <!-- aim:risks -->
 
 | Risk | Blast radius | Mitigation |
 |---|---|---|
 | TODO | TODO | TODO |
 
-## Definition of done for the whole project
+## Definition of done for the whole project     <!-- aim:done -->
 
 > Not per-task — for this piece of work as a whole.
 
@@ -123,7 +123,7 @@ TODO
 
 ---
 
-## For the team
+## For the team     <!-- aim:team -->
 
 Several instances of one role may work different slices at once — two engineers on two
 services, several QA instances on different surfaces. Each one's `focus` in
@@ -139,3 +139,7 @@ Rules that override role instinct:
   workspace and saw it pass.
 - **Compatibility is not optional.** Stored data, public shapes, and existing callers
   keep working unless a migration is part of the task.
+- **Claims get audited.** Where the team has a `verification` role, a `status: done` is a
+  hypothesis until it returns *confirmed*. *Unverifiable* — nothing recorded to re-run —
+  is a finding, not a pass. Record the command or seed that would let someone else check
+  you, at the time you make the claim, not afterwards.

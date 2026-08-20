@@ -150,7 +150,13 @@
   pre.last.empty { color: var(--fg-faint); font-style: italic; }
   pre.err { border-color: var(--errored-bg); color: #ffd489; }
 
-  #warnings { margin-top: 16px; font-size: 12px; color: var(--fg-dim); }
+    /* Unread mail sits between the roles and the warnings: quieter than the blocked
+     alarm, louder than a warning, because it needs a person but not this second. */
+  #mail { margin-top: 14px; font-size: 12px; color: var(--errored-bg);
+          border-left: 3px solid var(--errored-bg); padding-left: 10px; }
+  #mail:empty { display: none; }
+  #mail div { margin: 3px 0; overflow-wrap: anywhere; }
+#warnings { margin-top: 16px; font-size: 12px; color: var(--fg-dim); }
   #warnings ul { margin: 4px 0 0; padding-left: 18px; }
   #warnings li { margin: 2px 0; overflow-wrap: anywhere; }
   #empty { display: none; padding: 24px 8px; color: var(--fg-faint); }
@@ -480,6 +486,36 @@
       alarmEl.className = "";
       var errN = counts["errored"] || 0;
       document.title = errN ? "(" + errN + " errored) agent-teams" : "agent-teams monitor";
+    }
+
+    // unread mail — an urgent message or an unread broadcast is actionable in the
+    // same way a blocked role is: the agent is alive and producing, but from
+    // instructions the team has already superseded.
+    var mailEl = document.getElementById("mail");
+    if (!mailEl) {
+      mailEl = document.createElement("div");
+      mailEl.id = "mail";
+      warnEl.parentNode.insertBefore(mailEl, warnEl);
+    }
+    var mailLines = [];
+    (data.pending_broadcasts || []).forEach(function (b) {
+      mailLines.push((b.urgent ? "! " : "") + "broadcast " + b.id + " from " +
+                     b.from + " unread by: " + (b.waiting_on || []).join(", "));
+    });
+    (data.roles || []).forEach(function (r) {
+      if ((r.unread_urgent || 0) > 0) {
+        mailLines.push("! " + r.role + " has " + r.unread_urgent + " urgent unread");
+      }
+    });
+    var msig = mailLines.join("|");
+    if (mailEl.getAttribute("data-sig") !== msig) {
+      mailEl.setAttribute("data-sig", msig);
+      mailEl.textContent = "";
+      mailLines.forEach(function (line) {
+        var d = document.createElement("div");
+        d.textContent = line;
+        mailEl.appendChild(d);
+      });
     }
 
     // warnings
