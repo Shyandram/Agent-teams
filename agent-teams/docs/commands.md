@@ -5,7 +5,9 @@ Every command, every flag, what it actually does.
 This is the canonical reference — written from the argument parsers, not from the help
 text. Where the two disagree, this file is right and `--help` is missing something.
 
-For the design behind it, see [modes.md](modes.md) (why there are two launch modes),
+For the design behind it, see [unified-orchestration.md](design/unified-orchestration.md)
+(how flows, crews, agents, tasks, and runtime sessions fit together), [modes.md](modes.md)
+(why there are two launch modes),
 [runtimes.md](runtimes.md) (Claude Code vs Codex vs pi), and
 [monitor.md](monitor.md) (how state is collected).
 

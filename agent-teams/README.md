@@ -487,6 +487,15 @@ then starts that idea-general as a separate session. This lets one main general 
 three approved ideas into three child-general sessions—four sessions total including the
 main general—while keeping unapproved ideas inside the main session.
 
+## Unified workflow vocabulary
+
+The design also borrows CrewAI’s useful workflow vocabulary without requiring CrewAI as a
+dependency: the overall objective is a **Flow**, each approved idea-general is a **Crew**,
+each role is an **Agent**, and each coordination assignment is a verifiable **Task**.
+CrewAI can optionally run inside an approved session for structured Python workflows;
+agent-teams remains responsible for cross-runtime sessions, approval, permissions,
+monitoring, logs, and recovery. See [unified orchestration](docs/design/unified-orchestration.md).
+
 ## Squads: small groups owning one direction
 
 When several directions should be explored at once, give each its own group with thinking

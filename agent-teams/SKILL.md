@@ -133,6 +133,11 @@ For research ideas, a child-general may be marked `session: true` with
 `approval: proposed`. The main general discusses and approves it by changing the value
 to `approved`; only then does the next launch create that child-general's session.
 
+The unified vocabulary is: the objective lifecycle is a **Flow**, each approved
+idea-general is a **Crew**, each role is an **Agent**, and each bounded assignment is a
+verifiable **Task**. CrewAI may run as an optional in-session execution engine; it does
+not bypass this project's approval, permission, or runtime-session rules.
+
 ## Four failure modes you must prevent
 
 All observed empirically (`docs/SPIKE-FINDINGS.md`). Each is **silent**: the user sees agents that look alive but will never finish.

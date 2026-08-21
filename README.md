@@ -114,6 +114,10 @@ The generated manifest makes the relationship explicit:
 Only `lead` creates a runtime session. `research` keeps its own role prompt and can open
 further subagents when the general delegates work to it.
 
+This is the runtime half of a larger orchestration model: a main objective is a Flow, an
+approved idea-general is a Crew, each role is an Agent, and each coordination assignment
+is a verifiable Task. See [the unified orchestration design](agent-teams/docs/design/unified-orchestration.md).
+
 For research branching, ideas can first be proposed as session-owning generals:
 
 ```yaml

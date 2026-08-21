@@ -275,6 +275,7 @@ agent-teams launch --layout tmux   <span class="c"># interactive windows</span><
     <p class="pt">Both modes share the same role library, the same <code>AGENTS.md</code>, and the same coordination protocol. They are the interactive and the detached form of one team, not two products.</p>
     <p class="pt"><strong>One session, many roles.</strong> The generated manifest marks the main-task general with <code>session: true</code> and attaches child roles with <code>parent: lead</code>. Only the general creates a runtime session; a child role can delegate further subagents without multiplying top-level sessions.</p>
     <p class="pt"><strong>Ideas need approval first.</strong> An idea-general starts as <code>approval: proposed</code>, so it creates no session. After the main general reviews and changes it to <code>approved</code>, the next launch activates it. Three approved ideas plus the main general produce four sessions.</p>
+    <p class="pt"><strong>Flow, crew, agent, task.</strong> The research lifecycle is a Flow; each approved idea-general is a Crew; its role prompts are Agents; and each coordination assignment is a verifiable Task. CrewAI can run inside an approved session when structured Python orchestration is useful, while this tool remains responsible for sessions and operations.</p>
   </div>
 </div>
 
