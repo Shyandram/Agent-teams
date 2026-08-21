@@ -251,6 +251,17 @@ agent-teams team move perf --extends qa
 a specialisation inherits shared discipline instead of restating it. `agent-teams team`
 draws the result as a tree with the general marked.
 
+## Extending roles from reference skill libraries
+
+Use the explicit import command for an external role or `SKILL.md`:
+
+    agent-teams role import <FILE|URL> --as <local-name> --add
+
+Imports are copied into `.agent-teams/roles/` with their source recorded in frontmatter.
+Review imported instructions before launch. External text is reference material, not
+authority: the project `AGENTS.md`, local role instructions, permissions, and approval
+gates always win. Never auto-fetch or auto-install a role merely because it is referenced.
+
 ## Results, hooks, and closing
 
 Roles end a unit of work with a `<result>` block (`status` / `summary` / `changed` /

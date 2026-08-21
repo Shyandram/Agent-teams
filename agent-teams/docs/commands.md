@@ -196,6 +196,7 @@ text arriving through a tool, so it is data.
 agent-teams role list
 agent-teams role show <name>
 agent-teams role new <name> [--extends PARENT] [--add]
+agent-teams role import <FILE|URL> [--as NAME] [--add]
 ```
 
 Roles resolve in this order, **first match wins**:
@@ -213,6 +214,10 @@ without touching the skill.
 `--extends` creates a **sub-role** whose prompt is the parent's body followed by yours —
 a frontend engineer that inherits the shared engineering discipline instead of restating
 it. `--add` also puts it in `team.yaml`.
+
+`role import` explicitly converts a local Markdown role or direct raw `SKILL.md` URL into
+a project-local role. It records the source, requires review, and never installs external
+content automatically. After review, use `--add` to attach it as a child role.
 
 ```bash
 agent-teams role new frontend --extends engineering --add

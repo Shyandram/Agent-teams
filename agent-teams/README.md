@@ -367,6 +367,17 @@ agent-teams role show frontend
 `--extends` makes a **sub-role**: its prompt is the parent's body followed by its own, so
 a specialisation inherits the shared discipline instead of restating it.
 
+External role extension is explicit:
+
+```bash
+agent-teams role import \
+  https://raw.githubusercontent.com/alirezarezvani/claude-skills/main/research/SKILL.md \
+  --as literature-researcher --add
+```
+
+The imported role is saved under `.agent-teams/roles/`, records its source, and must be
+reviewed before launch. Project-local instructions and `AGENTS.md` remain authoritative.
+
 ## Talking between roles
 
 ```bash
